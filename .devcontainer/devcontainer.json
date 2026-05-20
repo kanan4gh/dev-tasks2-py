@@ -1,0 +1,19 @@
+{
+  // TODO: Python/uv 向けに設定する
+  // 参考: dev-tasks2 の devcontainer.json (Node.js/TypeScript 版)
+  "name": "dev-tasks2-py",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    // uv のインストール方法を検討して追加する
+    // Claude Code のインストール方法を検討して追加する
+  },
+  "postCreateCommand": "",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  }
+}
