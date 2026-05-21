@@ -1,19 +1,44 @@
 {
-  // TODO: Python/uv 向けに設定する
-  // 参考: dev-tasks2 の devcontainer.json (Node.js/TypeScript 版)
   "name": "dev-tasks2-py",
-  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+
+  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
+
   "features": {
-    // uv のインストール方法を検討して追加する
-    // Claude Code のインストール方法を検討して追加する
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "postCreateCommand": "",
+
+  "postCreateCommand": "bash .devcontainer/postCreate.sh",
+
+  "mounts": [
+    "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached"
+  ],
+
+  "containerEnv": {
+    "AWS_PROFILE": "kanan",
+    "AWS_REGION": "us-west-2",
+    "AWS_DEFAULT_REGION": "us-west-2"
+  },
+
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
-        "ms-python.vscode-pylance"
-      ]
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker",
+        "amazonwebservices.aws-toolkit-vscode",
+        "tamasfe.even-better-toml"
+      ],
+
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.terminal.activateEnvironment": true
+      }
     }
   }
 }
