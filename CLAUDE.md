@@ -168,35 +168,36 @@
 
 <!-- 他のリポジトリへの移植時: このセクションを新しい技術スタックの情報に書き換える -->
 
-## ⚠️ このセクションは未作成です
-
-このプロジェクトの技術スタック固有層はまだ定義されていません。
-devcontainerのセットアップ後、以下の参考情報をもとに作成してください。
-
----
-
-## 参考: TypeScript版（dev-tasks2）の技術スタック
-
-> **dev-tasks2-py のセットアップ時にこのセクションを Python/uv 版に書き換えてください。**
-
-### 技術スタック（TypeScript版）
+## 技術スタック
 
 - 開発環境: devcontainer
-- Node.js v24.11.0
-- TypeScript 5.x
-- パッケージマネージャー: npm
-- Claude: devcontainer.jsonでfeature指定。npmでバージョン管理。更新はbashエリアスのupdate-claudeで行う。
+- Python 3.12
+- パッケージマネージャー: uv
+- CLIフレームワーク: typer
+- データモデル: pydantic
+- データ保存: pyyaml（`~/.task/` 以下の YAML ファイル）
+- ターミナル表示: rich
+- テスト: pytest / pytest-cov
+- 型チェック: pyright
 
-### PR・リリースフロー（TypeScript版）
+### 主要コマンド
+
+```bash
+uv sync              # 依存関係インストール
+uv run task --help   # CLI 動作確認
+uv run pytest        # テスト実行
+uv run pyright src   # 型チェック
+```
+
+### PR・リリースフロー
 
 #### PR作成
 - `gh pr create` でフィーチャーブランチからPRを作成し、mainにマージ
 
 #### リリース
-PRマージ後、main で `npm run release <version>` を実行（バージョン更新・ビルド・テスト・コミット・プッシュ・GitHub Release 作成を一括実行）:
-- バージョン bump のコミットは `npm run release` が main に直接行う（これは許容）
-- 例: `npm run release 0.9.4`
-- **手動で `package.json` を編集したり `gh release create` を直接呼ばない**
+リリーススクリプトは未定義（今後 `pyproject.toml` の `[project.scripts]` に追加予定）:
+- バージョンは `pyproject.toml` の `version` フィールドを更新
+- `gh release create` でGitHub Releaseを作成
 - リリース前に関連 GitHub Issues をクローズする（`gh issue close <番号>`）
 
 ---
