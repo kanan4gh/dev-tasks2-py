@@ -35,7 +35,7 @@ dev-tasks2-py/
 │       ├── storage/                  # ストレージレイヤー
 │       │   ├── __init__.py
 │       │   ├── file_storage.py       # tasks.yaml の読み書き・バックアップ
-│       │   └── global_config_storage.py  # ~/.task/config.yaml の読み書き
+│       │   └── global_config_storage.py  # ~/.task-py/config.yaml の読み書き
 │       └── usecases/                 # ユースケース層
 │           ├── __init__.py
 │           └── task_crud_usecase.py  # ストレージパス解決・TaskManager への委譲
@@ -123,7 +123,7 @@ dev-tasks2-py/
 
 **配置ファイル**:
 - `file_storage.py`: `tasks.yaml` の読み書き。書き込み前に `.bak` を作成し、失敗時は自動復元
-- `global_config_storage.py`: `~/.task/config.yaml` の読み書き
+- `global_config_storage.py`: `~/.task-py/config.yaml` の読み書き
 
 **依存関係**:
 - 依存可能: `models/`、Python 標準ライブラリ（`pathlib`, `os`, `shutil`）
@@ -136,7 +136,7 @@ dev-tasks2-py/
 **役割**: アクティブプロジェクトに応じたストレージパスを解決し、TaskManager に委譲する。
 
 **配置ファイル**:
-- `task_crud_usecase.py`: `GlobalConfigService` でアクティブプロジェクトを取得 → `~/.task/projects/<name>/tasks.yaml` または `~/.task/inbox/tasks.yaml` に解決 → `TaskManager` を生成して操作を委譲
+- `task_crud_usecase.py`: `GlobalConfigService` でアクティブプロジェクトを取得 → `~/.task-py/projects/<name>/tasks.yaml` または `~/.task-py/inbox/tasks.yaml` に解決 → `TaskManager` を生成して操作を委譲
 
 ---
 
@@ -218,4 +218,4 @@ htmlcov/
 dist/
 ```
 
-> タスクデータはグローバルストレージ（`~/.task/`）に保存されるため、`.gitignore` への追記は不要。
+> タスクデータはグローバルストレージ（`~/.task-py/`）に保存されるため、`.gitignore` への追記は不要。

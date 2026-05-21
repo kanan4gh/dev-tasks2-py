@@ -46,10 +46,10 @@ task-py show 1
 
 ## データ保存先
 
-タスクデータはホームディレクトリの `~/.task/` に YAML 形式で保存されます。
+タスクデータはホームディレクトリの `~/.task-py/` に YAML 形式で保存されます。
 
 ```
-~/.task/
+~/.task-py/
 ├── config.yaml                    # グローバル設定
 ├── inbox/
 │   └── tasks.yaml                 # Inbox タスク

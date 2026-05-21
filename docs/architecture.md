@@ -61,7 +61,7 @@ TypeScript版と同じ4層構造を採用する。依存は外→内の一方向
 └───────────────────────────────┘
          ↓ 外部依存
 ┌──────────────────┐
-│ ~/.task/ (FS)    │
+│ ~/.task-py/ (FS)    │
 └──────────────────┘
 ```
 
@@ -89,9 +89,9 @@ class TaskStatus(str, Enum):
 
 | データ種別 | パス | フォーマット |
 |-----------|------|------------|
-| グローバル設定 | `~/.task/config.yaml` | YAML オブジェクト |
-| タスクデータ（プロジェクト） | `~/.task/projects/<name>/tasks.yaml` | YAML 配列 |
-| タスクデータ（Inbox） | `~/.task/inbox/tasks.yaml` | YAML 配列 |
+| グローバル設定 | `~/.task-py/config.yaml` | YAML オブジェクト |
+| タスクデータ（プロジェクト） | `~/.task-py/projects/<name>/tasks.yaml` | YAML 配列 |
+| タスクデータ（Inbox） | `~/.task-py/inbox/tasks.yaml` | YAML 配列 |
 
 ※ TypeScript版は JSON だが、Python版は YAML を採用（pyyaml が標準的なため）。
 
@@ -107,7 +107,7 @@ class TaskStatus(str, Enum):
 
 | パス | パーミッション |
 |-----|-------------|
-| `~/.task/` および配下ディレクトリ | `700`（オーナーのみアクセス可） |
+| `~/.task-py/` および配下ディレクトリ | `700`（オーナーのみアクセス可） |
 | `tasks.yaml`, `config.yaml` | `644`（デフォルト） |
 
 ---
@@ -141,5 +141,5 @@ uv run pyright src tests         # 型チェック
 
 ## セキュリティ
 
-- `~/.task/` ディレクトリに `chmod 700` を設定し、オーナーのみアクセス可能にする
-- GitHub Token 等の機密情報は将来 `~/.task/projects/<name>/config.yaml` に保存（P1）。ファイルパーミッション `600` を設定予定
+- `~/.task-py/` ディレクトリに `chmod 700` を設定し、オーナーのみアクセス可能にする
+- GitHub Token 等の機密情報は将来 `~/.task-py/projects/<name>/config.yaml` に保存（P1）。ファイルパーミッション `600` を設定予定
