@@ -2,34 +2,31 @@
 
 タスク管理 CLI ツール。TypeScript 版 [dev-tasks2](https://github.com/kanan4gh/dev-tasks2) の Python/uv 再実装。
 
-## 必要環境
+## インストール
 
-- Python 3.12 以上
-- [uv](https://docs.astral.sh/uv/)
-
-## セットアップ
+[uv](https://docs.astral.sh/uv/) が必要です。
 
 ```bash
-git clone https://github.com/kanan4gh/dev-tasks2-py
-cd dev-tasks2-py
-uv sync
+uv tool install git+https://github.com/kanan4gh/dev-tasks2-py
 ```
+
+インストール後は `task-py` コマンドが使えます。
 
 ## 使い方
 
 ### タスクの作成
 
 ```bash
-uv run task add "ユーザー認証機能の実装"
-uv run task add "バグ修正" --description "ログイン画面のバリデーションエラー" --priority high
-uv run task add "リリース作業" --due 2026-12-31
+task-py add "ユーザー認証機能の実装"
+task-py add "バグ修正" --description "ログイン画面のバリデーションエラー" --priority high
+task-py add "リリース作業" --due 2026-12-31
 ```
 
 ### タスク一覧
 
 ```bash
-uv run task list               # open と in_progress のみ表示
-uv run task list --all-status  # 全ステータスを表示
+task-py list               # open と in_progress のみ表示
+task-py list --all-status  # 全ステータスを表示
 ```
 
 表示例:
@@ -44,7 +41,7 @@ uv run task list --all-status  # 全ステータスを表示
 ### タスク詳細
 
 ```bash
-uv run task show 1
+task-py show 1
 ```
 
 ## データ保存先
@@ -61,10 +58,14 @@ uv run task show 1
         └── tasks.yaml             # プロジェクト別タスク
 ```
 
-## 開発
+## 開発者向け
 
 ```bash
-uv run pytest                  # テスト実行
-uv run pytest --cov=src        # カバレッジ付き
-uv run pyright src tests       # 型チェック
+git clone https://github.com/kanan4gh/dev-tasks2-py
+cd dev-tasks2-py
+uv sync
+uv run task-py --help  # 開発環境での実行
+
+uv run pytest          # テスト
+uv run pyright src     # 型チェック
 ```

@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-task = "task_cli.cli.main:app"
+task-py = "task_cli.cli.main:app"
 
 [build-system]
 requires = ["hatchling"]
