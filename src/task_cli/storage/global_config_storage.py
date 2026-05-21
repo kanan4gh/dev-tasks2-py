@@ -5,7 +5,7 @@ import yaml
 
 from task_cli.models.task import GlobalConfig
 
-_TASK_DIR = Path("~/.task").expanduser()
+_TASK_DIR = Path("~/.task-py").expanduser()
 _CONFIG_PATH = _TASK_DIR / "config.yaml"
 
 

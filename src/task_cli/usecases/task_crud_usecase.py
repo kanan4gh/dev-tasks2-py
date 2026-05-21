@@ -9,8 +9,8 @@ from task_cli.storage.file_storage import FileStorage
 
 def resolve_storage_path(active_project: str | None) -> Path:
     if active_project:
-        return Path(f"~/.task/projects/{active_project}/tasks.yaml").expanduser()
-    return Path("~/.task/inbox/tasks.yaml").expanduser()
+        return Path(f"~/.task-py/projects/{active_project}/tasks.yaml").expanduser()
+    return Path("~/.task-py/inbox/tasks.yaml").expanduser()
 
 
 class TaskCrudUseCase:
