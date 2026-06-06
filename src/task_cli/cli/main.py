@@ -8,6 +8,7 @@ from task_cli.cli.commands.inbox import inbox
 from task_cli.cli.commands.list import list_tasks
 from task_cli.cli.commands.move import move
 from task_cli.cli.commands.project import project_app
+from task_cli.cli.commands.shell import shell
 from task_cli.cli.commands.show import show
 from task_cli.cli.commands.start import start
 
@@ -22,6 +23,7 @@ app.command("delete")(delete)
 app.command("archive")(archive)
 app.command("move")(move)
 app.command("inbox")(inbox)
+app.command("shell")(shell)
 app.add_typer(project_app, name="project")
 
 
