@@ -44,6 +44,32 @@ task-py list --all-status  # 全ステータスを表示
 task-py show 1
 ```
 
+### ステータス操作
+
+```bash
+task-py start 1    # in_progress に変更
+task-py done 1     # completed に変更
+task-py archive 1  # archived に変更
+task-py delete 1   # 削除（確認プロンプトあり）
+```
+
+### プロジェクト管理
+
+```bash
+task-py project create myapp   # プロジェクトを作成（自動でアクティブに）
+task-py project list           # プロジェクト一覧（タスク数付き）
+task-py project use myapp      # アクティブプロジェクトを切り替え
+task-py project remove myapp   # プロジェクトを削除（確認プロンプトあり）
+```
+
+### タスク移動・Inbox
+
+```bash
+task-py move 1 other-project  # タスクを別プロジェクトへ移動
+task-py move 1 inbox          # タスクを Inbox へ移動
+task-py inbox                 # Inbox モードに切り替え
+```
+
 ## データ保存先
 
 タスクデータはホームディレクトリの `~/.task-py/` に YAML 形式で保存されます。

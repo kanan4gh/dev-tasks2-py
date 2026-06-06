@@ -30,7 +30,9 @@ def make_use_case(tmp_path: Path, active_project: str | None = None) -> TaskCrud
 
     def storage_factory(path: Path) -> FileStorage:
         if path not in storages:
-            storages[path] = FileStorage(tmp_path / path.name)
+            # プロジェクト名とファイル名を組み合わせてユニークにする
+            unique_name = f"{path.parent.name}_{path.name}"
+            storages[path] = FileStorage(tmp_path / unique_name)
         return storages[path]
 
     return TaskCrudUseCase(global_config_service, storage_factory)
@@ -285,6 +287,28 @@ class TestTaskCrudUseCase:
         uc.add_task("DB設計")
         result = uc.search_tasks("認証")
         assert len(result) == 1
+
+
+class TestMoveTask:
+    def test_move_to_another_project(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path, active_project="src-proj")
+        task = uc.add_task("移動タスク")
+        moved = uc.move_task(task.id, "dst-proj")
+        assert moved.title == "移動タスク"
+        # 移動元からなくなっている
+        assert uc.list_tasks() == []
+
+    def test_move_to_inbox(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path, active_project="myapp")
+        task = uc.add_task("Inboxへ移動")
+        moved = uc.move_task(task.id, None)
+        assert moved.title == "Inboxへ移動"
+        assert uc.list_tasks() == []
+
+    def test_move_nonexistent_id_raises(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path)
+        with pytest.raises(AppError):
+            uc.move_task(999, "other-proj")
 
 
 class TestResolveStoragePath:
