@@ -103,3 +103,37 @@ class TestRemoveProject:
         svc = make_service(tmp_path)
         with pytest.raises(AppError):
             svc.remove_project("nonexistent")
+
+
+class TestRenameProject:
+    def test_renames_non_active_project(self, tmp_path: Path) -> None:
+        svc = make_service(tmp_path)
+        svc.create_project("old")
+        svc.create_project("other")
+        svc.use_project("other")
+        svc.rename_project("old", "new")
+        names = [p.name for p in svc.list_projects()]
+        assert "new" in names
+        assert "old" not in names
+        assert svc.get_config().active_project == "other"
+
+    def test_renames_active_project_updates_active(self, tmp_path: Path) -> None:
+        svc = make_service(tmp_path)
+        svc.create_project("myapp")
+        svc.rename_project("myapp", "renamed")
+        assert svc.get_config().active_project == "renamed"
+        names = [p.name for p in svc.list_projects()]
+        assert "renamed" in names
+        assert "myapp" not in names
+
+    def test_old_not_found_raises(self, tmp_path: Path) -> None:
+        svc = make_service(tmp_path)
+        with pytest.raises(AppError):
+            svc.rename_project("nonexistent", "new")
+
+    def test_new_duplicate_raises(self, tmp_path: Path) -> None:
+        svc = make_service(tmp_path)
+        svc.create_project("a")
+        svc.create_project("b")
+        with pytest.raises(AppError):
+            svc.rename_project("a", "b")

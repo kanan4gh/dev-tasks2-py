@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from task_cli.exceptions import AppError
-from task_cli.models.task import GlobalConfig, Priority, TaskStatus
+from task_cli.models.task import GlobalConfig, Priority, ProjectEntry, TaskStatus
 from task_cli.services.global_config_service import GlobalConfigService
 from task_cli.services.task_manager import TaskFilter, TaskManager
 from task_cli.storage.file_storage import FileStorage
@@ -309,6 +309,76 @@ class TestMoveTask:
         uc = make_use_case(tmp_path)
         with pytest.raises(AppError):
             uc.move_task(999, "other-proj")
+
+
+def make_use_case_with_projects(
+    tmp_path: Path, active_project: str | None, project_names: list[str]
+) -> TaskCrudUseCase:
+    config_storage = GlobalConfigStorage(tmp_path / "config.yaml")
+    projects = [ProjectEntry(id=i + 1, name=name) for i, name in enumerate(project_names)]
+    config_storage.save(GlobalConfig(active_project=active_project, projects=projects, last_project_id=len(projects)))
+    global_config_service = GlobalConfigService(config_storage)
+    storages: dict[Path, FileStorage] = {}
+
+    def storage_factory(path: Path) -> FileStorage:
+        if path not in storages:
+            unique_name = f"{path.parent.name}_{path.name}"
+            storages[path] = FileStorage(tmp_path / unique_name)
+        return storages[path]
+
+    return TaskCrudUseCase(global_config_service, storage_factory)
+
+
+class TestListAllProjects:
+    def test_returns_inbox_and_projects(self, tmp_path: Path) -> None:
+        uc = make_use_case_with_projects(tmp_path, active_project="proj-a", project_names=["proj-a"])
+        uc.add_task("プロジェクトタスク")
+
+        result = uc.list_all_projects()
+        assert None in result
+        assert "proj-a" in result
+        assert len(result["proj-a"]) == 1
+
+    def test_inbox_tasks_are_included(self, tmp_path: Path) -> None:
+        uc = make_use_case_with_projects(tmp_path, active_project=None, project_names=[])
+        uc.add_task("Inboxタスク")
+
+        result = uc.list_all_projects()
+        assert None in result
+        assert len(result[None]) == 1
+
+    def test_filter_applied_to_all_projects(self, tmp_path: Path) -> None:
+        uc = make_use_case_with_projects(tmp_path, active_project="proj-a", project_names=["proj-a"])
+        t = uc.add_task("オープンタスク")
+        t2 = uc.add_task("完了タスク")
+        uc.start_task(t2.id)
+        uc.complete_task(t2.id)
+
+        result = uc.list_all_projects(TaskFilter(status=[TaskStatus.OPEN]))
+        assert len(result["proj-a"]) == 1
+        assert result["proj-a"][0].title == "オープンタスク"
+
+
+class TestListInboxTasks:
+    def test_returns_only_inbox_tasks(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path, active_project=None)
+        uc.add_task("Inboxタスク1")
+        uc.add_task("Inboxタスク2")
+
+        result = uc.list_inbox_tasks()
+        assert len(result) == 2
+
+    def test_filter_applied(self, tmp_path: Path) -> None:
+        from task_cli.models.task import TaskStatus
+        uc = make_use_case(tmp_path, active_project=None)
+        t = uc.add_task("オープン")
+        t2 = uc.add_task("完了")
+        uc.start_task(t2.id)
+        uc.complete_task(t2.id)
+
+        result = uc.list_inbox_tasks(TaskFilter(status=[TaskStatus.OPEN]))
+        assert len(result) == 1
+        assert result[0].title == "オープン"
 
 
 class TestResolveStoragePath:

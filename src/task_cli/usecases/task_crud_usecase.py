@@ -39,6 +39,17 @@ class TaskCrudUseCase:
     def list_tasks(self, filter: TaskFilter | None = None) -> list[Task]:
         return self._get_manager().list_tasks(filter)
 
+    def list_all_projects(self, filter: TaskFilter | None = None) -> dict[str | None, list[Task]]:
+        config = self._global_config_service.get_all()
+        result: dict[str | None, list[Task]] = {}
+        result[None] = TaskManager(self._storage_factory(resolve_storage_path(None))).list_tasks(filter)
+        for project in config.projects:
+            result[project.name] = TaskManager(self._storage_factory(resolve_storage_path(project.name))).list_tasks(filter)
+        return result
+
+    def list_inbox_tasks(self, filter: TaskFilter | None = None) -> list[Task]:
+        return TaskManager(self._storage_factory(resolve_storage_path(None))).list_tasks(filter)
+
     def get_task(self, id: int) -> Task:
         return self._get_manager().get_task(id)
 

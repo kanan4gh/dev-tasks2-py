@@ -82,6 +82,21 @@ def use(
         raise typer.Exit(code=1)
 
 
+@project_app.command("rename")
+def rename(
+    old: str = typer.Argument(..., help="変更前のプロジェクト名"),
+    new: str = typer.Argument(..., help="変更後のプロジェクト名"),
+) -> None:
+    """プロジェクトをリネームします。"""
+    try:
+        svc = _get_project_service()
+        svc.rename_project(old, new)
+        render_success(f"プロジェクト '{old}' を '{new}' にリネームしました")
+    except AppError as e:
+        render_error(e)
+        raise typer.Exit(code=1)
+
+
 @project_app.command("remove")
 def remove(
     name: str = typer.Argument(..., help="プロジェクト名"),

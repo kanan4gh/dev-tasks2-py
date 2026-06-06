@@ -8,6 +8,8 @@ from task_cli.services.task_manager import TaskFilter
 
 
 def list_tasks(
+    all_projects: bool = typer.Option(False, "--all", help="全プロジェクト + Inbox のタスクを表示"),
+    inbox: bool = typer.Option(False, "--inbox", help="Inbox のタスクのみ表示"),
     all_status: bool = typer.Option(False, "--all-status", help="全ステータスのタスクを表示"),
 ) -> None:
     """タスク一覧を表示します。デフォルトは open と in_progress のみ。"""
@@ -15,16 +17,21 @@ def list_tasks(
         svc = get_global_config_service()
         active = svc.get_active_project()
         config = svc.get_all()
-
         uc = get_use_case()
-        if all_status:
-            tasks = uc.list_tasks()
-        else:
-            tasks = uc.list_tasks(
-                TaskFilter(status=[TaskStatus.OPEN, TaskStatus.IN_PROGRESS])
-            )
 
-        render_task_table(tasks, active, config)
+        filter = None if all_status else TaskFilter(status=[TaskStatus.OPEN, TaskStatus.IN_PROGRESS])
+
+        if all_projects:
+            tasks_by_project = uc.list_all_projects(filter)
+            for project_name, tasks in tasks_by_project.items():
+                render_task_table(tasks, project_name, config, is_active=(project_name == active))
+        elif inbox:
+            tasks = uc.list_inbox_tasks(filter)
+            render_task_table(tasks, None, config)
+        else:
+            tasks = uc.list_tasks(filter)
+            render_task_table(tasks, active, config)
+
     except AppError as e:
         render_error(e)
         raise typer.Exit(code=1)

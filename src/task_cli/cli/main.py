@@ -2,13 +2,17 @@ import typer
 
 from task_cli.cli.commands.add import add
 from task_cli.cli.commands.archive import archive
+from task_cli.cli.commands.daily import daily_app
 from task_cli.cli.commands.delete import delete
 from task_cli.cli.commands.done import done
 from task_cli.cli.commands.inbox import inbox
 from task_cli.cli.commands.list import list_tasks
 from task_cli.cli.commands.move import move
+from task_cli.cli.commands.onboard import onboard
 from task_cli.cli.commands.project import project_app
+from task_cli.cli.commands.search import search
 from task_cli.cli.commands.shell import shell
+from task_cli.cli.commands.time import time_app
 from task_cli.cli.commands.show import show
 from task_cli.cli.commands.start import start
 
@@ -23,8 +27,12 @@ app.command("delete")(delete)
 app.command("archive")(archive)
 app.command("move")(move)
 app.command("inbox")(inbox)
+app.command("search")(search)
+app.command("onboard")(onboard)
 app.command("shell")(shell)
 app.add_typer(project_app, name="project")
+app.add_typer(daily_app, name="daily")
+app.add_typer(time_app, name="time")
 
 
 @app.callback()

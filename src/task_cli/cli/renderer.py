@@ -39,8 +39,10 @@ def render_task_table(
     tasks: list[Task],
     active_project: str | None,
     config: GlobalConfig,
+    is_active: bool = False,
 ) -> None:
-    console.print(f"[bold]{_header(active_project)}[/bold]")
+    header_style = "bold green" if is_active else "bold"
+    console.print(f"[{header_style}]{_header(active_project)}[/{header_style}]")
 
     if not tasks:
         console.print("[dim]タスクがありません。[/dim]")

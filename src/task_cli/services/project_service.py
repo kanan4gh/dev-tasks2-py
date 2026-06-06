@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from task_cli.exceptions import AppError
 from task_cli.models.task import GlobalConfig, ProjectEntry
 from task_cli.storage.global_config_storage import GlobalConfigStorage
@@ -48,6 +50,26 @@ class ProjectService:
         if config.active_project == name:
             config.active_project = None
         self._storage.save(config)
+
+    def rename_project(self, old: str, new: str) -> None:
+        self.get_project(old)
+        config = self._storage.load()
+        if any(p.name == new for p in config.projects):
+            raise AppError(
+                "同名のプロジェクトが既に存在します。",
+                cause=f"プロジェクト '{new}' は既に登録されています。",
+                remedy="別の名前を指定してください。",
+            )
+        for p in config.projects:
+            if p.name == old:
+                p.name = new
+        if config.active_project == old:
+            config.active_project = new
+        self._storage.save(config)
+        old_dir = Path(f"~/.task-py/projects/{old}").expanduser()
+        new_dir = Path(f"~/.task-py/projects/{new}").expanduser()
+        if old_dir.exists():
+            old_dir.rename(new_dir)
 
     def get_config(self) -> GlobalConfig:
         return self._storage.load()
