@@ -194,6 +194,26 @@ class TestTaskManagerStatusTransitions:
         with pytest.raises(AppError):
             manager.archive_task(1)
 
+    def test_start_with_future_scheduled_date_raises(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        manager.set_scheduled_date(1, "2099-01-01")
+        with pytest.raises(AppError):
+            manager.start_task(1)
+
+    def test_start_with_past_scheduled_date_succeeds(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        manager.set_scheduled_date(1, "2000-01-01")
+        task = manager.start_task(1)
+        assert task.status == TaskStatus.IN_PROGRESS
+
+    def test_start_without_scheduled_date_succeeds(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        task = manager.start_task(1)
+        assert task.status == TaskStatus.IN_PROGRESS
+
 
 class TestTaskManagerDelete:
     def test_delete_existing(self, tmp_path: Path) -> None:
@@ -379,6 +399,57 @@ class TestListInboxTasks:
         result = uc.list_inbox_tasks(TaskFilter(status=[TaskStatus.OPEN]))
         assert len(result) == 1
         assert result[0].title == "オープン"
+
+
+class TestEditTask:
+    def test_update_title(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path)
+        task = uc.add_task("元タイトル")
+        updated = uc.edit_task(task.id, title="新タイトル")
+        assert updated.title == "新タイトル"
+
+    def test_update_description_and_priority(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path)
+        task = uc.add_task("タスク")
+        updated = uc.edit_task(task.id, description="詳細", priority=Priority.HIGH)
+        assert updated.description == "詳細"
+        assert updated.priority == Priority.HIGH
+
+    def test_set_and_clear_due_date(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path)
+        task = uc.add_task("タスク")
+        updated = uc.edit_task(task.id, due_date="2026-12-31")
+        assert updated.due_date == "2026-12-31"
+        cleared = uc.edit_task(task.id, clear_due_date=True)
+        assert cleared.due_date is None
+
+    def test_set_and_clear_scheduled_date(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path)
+        task = uc.add_task("タスク")
+        updated = uc.edit_task(task.id, scheduled_date="2099-01-01")
+        assert updated.scheduled_date == "2099-01-01"
+        cleared = uc.edit_task(task.id, clear_scheduled_date=True)
+        assert cleared.scheduled_date is None
+
+    def test_nonexistent_id_raises(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path)
+        with pytest.raises(AppError):
+            uc.edit_task(999, title="X")
+
+
+class TestSetScheduledDate:
+    def test_set_scheduled_date(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path)
+        task = uc.add_task("タスク")
+        updated = uc.set_scheduled_date(task.id, "2099-06-01")
+        assert updated.scheduled_date == "2099-06-01"
+
+    def test_clear_scheduled_date(self, tmp_path: Path) -> None:
+        uc = make_use_case(tmp_path)
+        task = uc.add_task("タスク")
+        uc.set_scheduled_date(task.id, "2099-06-01")
+        cleared = uc.set_scheduled_date(task.id, None)
+        assert cleared.scheduled_date is None
 
 
 class TestResolveStoragePath:

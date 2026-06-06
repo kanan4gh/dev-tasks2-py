@@ -65,6 +65,31 @@ class TaskCrudUseCase:
     def delete_task(self, id: int) -> None:
         self._get_manager().delete_task(id)
 
+    def edit_task(
+        self,
+        id: int,
+        title: str | None = None,
+        description: str | None = None,
+        priority: Priority | None = None,
+        due_date: str | None = None,
+        clear_due_date: bool = False,
+        scheduled_date: str | None = None,
+        clear_scheduled_date: bool = False,
+    ) -> Task:
+        return self._get_manager().edit_fields(
+            id,
+            title=title,
+            description=description,
+            priority=priority,
+            due_date=due_date,
+            clear_due_date=clear_due_date,
+            scheduled_date=scheduled_date,
+            clear_scheduled_date=clear_scheduled_date,
+        )
+
+    def set_scheduled_date(self, id: int, date: str | None) -> Task:
+        return self._get_manager().set_scheduled_date(id, date)
+
     def search_tasks(self, keyword: str) -> list[Task]:
         return self._get_manager().search_tasks(keyword)
 

@@ -92,6 +92,37 @@ class TaskManager:
             remedy="task list で有効なIDを確認してください。",
         )
 
+    def edit_fields(
+        self,
+        id: int,
+        title: str | None = None,
+        description: str | None = None,
+        priority: Priority | None = None,
+        due_date: str | None = None,
+        clear_due_date: bool = False,
+        scheduled_date: str | None = None,
+        clear_scheduled_date: bool = False,
+    ) -> Task:
+        updates: dict[str, object] = {}
+        if title is not None:
+            updates["title"] = title
+        if description is not None:
+            updates["description"] = description
+        if priority is not None:
+            updates["priority"] = priority
+        if clear_due_date:
+            updates["due_date"] = None
+        elif due_date is not None:
+            updates["due_date"] = due_date
+        if clear_scheduled_date:
+            updates["scheduled_date"] = None
+        elif scheduled_date is not None:
+            updates["scheduled_date"] = scheduled_date
+        return self.update_task(id, **updates)
+
+    def set_scheduled_date(self, id: int, date: str | None) -> Task:
+        return self.update_task(id, scheduled_date=date)
+
     def start_task(self, id: int) -> Task:
         task = self.get_task(id)
         if not task.can_transition_to(TaskStatus.IN_PROGRESS):
@@ -100,6 +131,14 @@ class TaskManager:
                 cause=f"{task.status.value} のタスクは in_progress に変更できません。",
                 remedy="タスクのステータスを確認してください。",
             )
+        if task.scheduled_date is not None:
+            today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+            if task.scheduled_date > today:
+                raise AppError(
+                    "このタスクはまだ解禁されていません。",
+                    cause=f"scheduled_date ({task.scheduled_date}) が未来のため着手できません。",
+                    remedy=f"解禁日 ({task.scheduled_date}) 以降に start を実行してください。",
+                )
         return self.update_task(id, status=TaskStatus.IN_PROGRESS)
 
     def complete_task(self, id: int) -> Task:

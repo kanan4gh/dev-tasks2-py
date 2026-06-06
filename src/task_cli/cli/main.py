@@ -3,6 +3,8 @@ import typer
 from task_cli.cli.commands.add import add
 from task_cli.cli.commands.archive import archive
 from task_cli.cli.commands.daily import daily_app
+from task_cli.cli.commands.edit import edit
+from task_cli.cli.commands.schedule import schedule as schedule_cmd
 from task_cli.cli.commands.delete import delete
 from task_cli.cli.commands.done import done
 from task_cli.cli.commands.inbox import inbox
@@ -19,6 +21,7 @@ from task_cli.cli.commands.start import start
 app = typer.Typer(help="task-py - タスク管理ツール", invoke_without_command=True)
 
 app.command("add")(add)
+app.command("edit")(edit)
 app.command("list")(list_tasks)
 app.command("show")(show)
 app.command("start")(start)
@@ -27,6 +30,7 @@ app.command("delete")(delete)
 app.command("archive")(archive)
 app.command("move")(move)
 app.command("inbox")(inbox)
+app.command("schedule")(schedule_cmd)
 app.command("search")(search)
 app.command("onboard")(onboard)
 app.command("shell")(shell)

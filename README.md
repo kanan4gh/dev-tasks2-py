@@ -46,6 +46,26 @@ task-py list --inbox       # Inbox のタスクのみ表示
 task-py show 1
 ```
 
+### タスクの編集
+
+```bash
+task-py edit 1 --title "新しいタイトル"
+task-py edit 1 -d "説明文" -p high
+task-py edit 1 --due 2026-12-31
+task-py edit 1 --due-clear           # 期限を削除
+task-py edit 1 --scheduled 2026-07-01  # 解禁日を設定（それ以降に start できる）
+task-py edit 1 --scheduled-clear       # 解禁日を削除
+```
+
+### 解禁日の設定
+
+```bash
+task-py schedule 1 2026-07-01  # 解禁日を設定
+task-py schedule 1 --clear     # 解禁日を削除
+```
+
+解禁日が設定されたタスクは、その日付以降にならないと `start` できません。
+
 ### ステータス操作
 
 ```bash

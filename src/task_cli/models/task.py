@@ -28,15 +28,17 @@ class Task(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    @field_validator("due_date")
+    scheduled_date: str | None = None
+
+    @field_validator("due_date", "scheduled_date")
     @classmethod
-    def validate_due_date(cls, v: str | None) -> str | None:
+    def validate_date_format(cls, v: str | None) -> str | None:
         if v is None:
             return v
         try:
             datetime.strptime(v, "%Y-%m-%d")
         except ValueError:
-            raise ValueError(f"due_date must be YYYY-MM-DD format, got: {v}")
+            raise ValueError(f"date must be YYYY-MM-DD format, got: {v}")
         return v
 
     def can_transition_to(self, new_status: TaskStatus) -> bool:
