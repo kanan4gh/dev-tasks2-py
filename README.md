@@ -70,6 +70,26 @@ task-py move 1 inbox          # タスクを Inbox へ移動
 task-py inbox                 # Inbox モードに切り替え
 ```
 
+### インタラクティブシェル
+
+```bash
+task-py shell
+```
+
+起動するとプレフィックスなしでコマンドを連続実行できます。
+
+```
+task-py インタラクティブシェル（exit / quit で終了）
+task [inbox]> list
+task [inbox]> project use myapp
+task [myapp]> add "新しいタスク"
+task [myapp]> exit
+```
+
+- Tab キーでサブコマンドを補完
+- プロンプトにアクティブプロジェクトをリアルタイム表示
+- `exit` / `quit` または Ctrl+D で終了
+
 ## データ保存先
 
 タスクデータはホームディレクトリの `~/.task-py/` に YAML 形式で保存されます。
