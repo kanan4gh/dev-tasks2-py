@@ -27,6 +27,8 @@ task-py add "リリース作業" --due 2026-12-31
 ```bash
 task-py list               # open と in_progress のみ表示
 task-py list --all-status  # 全ステータスを表示
+task-py list --all         # 全プロジェクト + Inbox のタスクを表示
+task-py list --inbox       # Inbox のタスクのみ表示
 ```
 
 表示例:
@@ -53,13 +55,20 @@ task-py archive 1  # archived に変更
 task-py delete 1   # 削除（確認プロンプトあり）
 ```
 
+### タスク検索
+
+```bash
+task-py search "キーワード"  # アクティブプロジェクト内をキーワード検索
+```
+
 ### プロジェクト管理
 
 ```bash
-task-py project create myapp   # プロジェクトを作成（自動でアクティブに）
-task-py project list           # プロジェクト一覧（タスク数付き）
-task-py project use myapp      # アクティブプロジェクトを切り替え
-task-py project remove myapp   # プロジェクトを削除（確認プロンプトあり）
+task-py project create myapp        # プロジェクトを作成（自動でアクティブに）
+task-py project list                # プロジェクト一覧（タスク数付き）
+task-py project use myapp           # アクティブプロジェクトを切り替え
+task-py project rename myapp newapp # プロジェクトをリネーム
+task-py project remove myapp        # プロジェクトを削除（確認プロンプトあり）
 ```
 
 ### タスク移動・Inbox
@@ -68,6 +77,33 @@ task-py project remove myapp   # プロジェクトを削除（確認プロン�
 task-py move 1 other-project  # タスクを別プロジェクトへ移動
 task-py move 1 inbox          # タスクを Inbox へ移動
 task-py inbox                 # Inbox モードに切り替え
+```
+
+### デイリールーティーン
+
+```bash
+task-py daily add "朝のストレッチ"  # ルーティーンを追加
+task-py daily list                  # 今日の一覧（done/pending）
+task-py daily done 1                # ID 1 を完了にする
+task-py daily pause 1               # 一時停止
+task-py daily resume 1              # 再開（--all で全再開）
+task-py daily delete 1              # 削除
+task-py daily stats                 # 直近7日の達成率
+task-py daily reset                 # 今日をすべて pending に戻す
+```
+
+### オンボーディング
+
+```bash
+task-py onboard  # アクティブプロジェクト・ルーティーン・優先タスクを要約表示
+```
+
+### タイマー
+
+```bash
+task-py time start 25m  # 25分タイマー（完了時にベル通知）
+task-py time start 1h   # 1時間タイマー
+task-py time start 30s  # 30秒タイマー
 ```
 
 ### インタラクティブシェル
@@ -99,9 +135,12 @@ task [myapp]> exit
 ├── config.yaml                    # グローバル設定
 ├── inbox/
 │   └── tasks.yaml                 # Inbox タスク
-└── projects/
-    └── <name>/
-        └── tasks.yaml             # プロジェクト別タスク
+├── projects/
+│   └── <name>/
+│       └── tasks.yaml             # プロジェクト別タスク
+└── daily/
+    ├── routines.yaml              # ルーティーン定義
+    └── log.yaml                   # 日別達成ログ（直近30日）
 ```
 
 ## 開発者向け

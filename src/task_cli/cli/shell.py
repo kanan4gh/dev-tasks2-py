@@ -66,6 +66,9 @@ class InteractiveShell:
 
         typer.echo("task-py インタラクティブシェル（exit / quit で終了）")
 
+        from task_cli.cli.commands.onboard import onboard
+        onboard()
+
         while True:
             try:
                 prompt = get_prompt(self._config_service)
