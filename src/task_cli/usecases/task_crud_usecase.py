@@ -56,3 +56,20 @@ class TaskCrudUseCase:
 
     def search_tasks(self, keyword: str) -> list[Task]:
         return self._get_manager().search_tasks(keyword)
+
+    def move_task(self, id: int, target_project: str | None) -> Task:
+        src_manager = self._get_manager()
+        task = src_manager.get_task(id)
+
+        dst_path = resolve_storage_path(target_project)
+        dst_storage = self._storage_factory(dst_path)
+        dst_manager = TaskManager(dst_storage)
+
+        new_id = dst_manager.next_id()
+        new_task = task.model_copy(update={"id": new_id})
+        dst_tasks = dst_storage.load()
+        dst_tasks.append(new_task)
+        dst_storage.save(dst_tasks)
+
+        src_manager.delete_task(id)
+        return new_task
