@@ -16,7 +16,8 @@
   "postCreateCommand": "bash .devcontainer/postCreate.sh",
 
   "mounts": [
-    "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
   ],
 
   "containerEnv": {
