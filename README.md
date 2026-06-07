@@ -10,6 +10,8 @@
 uv tool install git+https://github.com/kanan4gh/dev-tasks2-py
 ```
 
+このコマンドはどのフォルダでも実行できます。グローバルにインストールされるため、カレントディレクトリは関係ありません。
+
 インストール後は `task-py` コマンドが使えます。
 
 ## 使い方
@@ -161,6 +163,20 @@ task [myapp]> exit
 └── daily/
     ├── routines.yaml              # ルーティーン定義
     └── log.yaml                   # 日別達成ログ（直近30日）
+```
+
+## アンインストール
+
+ツール本体を削除するには:
+
+```bash
+uv tool uninstall dev-tasks2-py
+```
+
+タスクデータも合わせて削除する場合:
+
+```bash
+rm -rf ~/.task-py/
 ```
 
 ## 開発者向け
