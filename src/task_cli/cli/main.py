@@ -1,6 +1,7 @@
 import typer
 
 from task_cli.cli.commands.add import add
+from task_cli.cli.commands.migrate import migrate
 from task_cli.cli.commands.archive import archive
 from task_cli.cli.commands.daily import daily_app
 from task_cli.cli.commands.edit import edit
@@ -33,6 +34,7 @@ app.command("inbox")(inbox)
 app.command("schedule")(schedule_cmd)
 app.command("search")(search)
 app.command("onboard")(onboard)
+app.command("migrate")(migrate)
 app.command("shell")(shell)
 app.add_typer(project_app, name="project")
 app.add_typer(daily_app, name="daily")
