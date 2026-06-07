@@ -42,7 +42,7 @@ def _convert_tasks(raw: list[dict[str, Any]]) -> list[Task]:
             title=t["title"],
             description=t.get("description", ""),
             status=TaskStatus(t["status"]),
-            priority=Priority(t["priority"]),
+            priority=Priority(t.get("priority", "medium")),
             branch=t.get("branch"),
             due_date=t.get("dueDate"),
             scheduled_date=t.get("scheduledDate"),
