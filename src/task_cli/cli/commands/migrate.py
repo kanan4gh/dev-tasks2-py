@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from task_cli.models.task import GlobalConfig, Priority, ProjectEntry, Task, Tas
 
 _TS_DIR = Path("~/.task").expanduser()
 _PY_DIR = Path("~/.task-py").expanduser()
+_BACKUP_DIR = Path("~/.task-py.backup").expanduser()
 
 console = Console()
 
@@ -131,11 +133,21 @@ def migrate(
     # 既存データの上書き確認
     if _py_has_data() and not force:
         confirmed = typer.confirm(
-            f"\n{_PY_DIR} に既存データがあります。上書きしますか？"
+            f"\n{_PY_DIR} に既存データがあります。\n"
+            f"上書きすると現在の task-py のタスクはすべて失われます\n"
+            f"（バックアップは {_BACKUP_DIR} に保存されます）。\n"
+            f"続行しますか？"
         )
         if not confirmed:
             console.print("[yellow]移行をキャンセルしました。[/yellow]")
             raise typer.Exit()
+
+    # 既存データをバックアップ
+    if _py_has_data():
+        if _BACKUP_DIR.exists():
+            shutil.rmtree(_BACKUP_DIR)
+        shutil.copytree(_PY_DIR, _BACKUP_DIR)
+        console.print(f"[dim]既存データを {_BACKUP_DIR} にバックアップしました。[/dim]")
 
     # 書き込み
     _write_yaml(_PY_DIR / "config.yaml", config.model_dump(mode="json"))
