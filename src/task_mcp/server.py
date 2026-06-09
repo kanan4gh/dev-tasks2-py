@@ -244,7 +244,7 @@ def use_project(name: str | None = None) -> str:
 
 @mcp.tool()
 def get_overview() -> str:
-    """Returns a daily overview: active project, today's routines (pending/done count), top tasks to work on next (in_progress first, then open), and a task count summary across all projects. Call this at the start of a session to get oriented."""
+    """現在の状況概観を返す。アクティブプロジェクト・今日のルーティーン・着手すべきタスク・全タスクサマリーを含む。"""
     svc = get_global_config_service()
     active = svc.get_active_project()
     uc = get_use_case()
