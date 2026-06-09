@@ -17,7 +17,7 @@ from task_cli.cli.commands.done import done
 from task_cli.cli.commands.inbox import inbox
 from task_cli.cli.commands.list import list_tasks
 from task_cli.cli.commands.move import move
-from task_cli.cli.commands.onboard import onboard
+from task_cli.cli.commands.onboard import overview
 from task_cli.cli.commands.project import project_app
 from task_cli.cli.commands.reset import reset
 from task_cli.cli.commands.search import search
@@ -42,7 +42,7 @@ app.command("move")(move)
 app.command("inbox")(inbox)
 app.command("schedule")(schedule_cmd)
 app.command("search")(search)
-app.command("onboard")(onboard)
+app.command("overview")(overview)
 app.command("migrate")(migrate)
 app.command("reset")(reset)
 app.command("shell")(shell)

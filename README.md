@@ -233,7 +233,7 @@ uv tool install git+https://github.com/kanan4gh/dev-tasks2-py.git
 | `list_projects` | プロジェクト一覧取得 |
 | `create_project` | プロジェクト作成 |
 | `use_project` | アクティブプロジェクト切り替え |
-| `onboard` | 現在の状況概観（プロジェクト・ルーティーン・タスク） |
+| `get_overview` | 現在の状況概観（プロジェクト・ルーティーン・タスク） |
 | `list_routines` | 今日のルーティーン一覧 |
 | `add_routine` | ルーティーン登録 |
 | `complete_routine` | ルーティーンを済にする |
