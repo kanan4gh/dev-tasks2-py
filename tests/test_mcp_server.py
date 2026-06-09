@@ -18,8 +18,8 @@ EXPECTED_TOOLS = {
     "delete_task", "archive_task", "edit_task", "move_task", "search_tasks",
     # プロジェクト管理
     "get_active_project", "list_projects", "create_project", "use_project",
-    # onboard
-    "onboard",
+    # overview
+    "get_overview",
     # ルーティーン管理
     "list_routines", "add_routine", "complete_routine", "pause_routine",
     "resume_routine", "delete_routine", "get_daily_stats",
@@ -97,8 +97,8 @@ def test_add_task_creates_task(tmp_task_env: Path) -> None:
     assert "作成しました" in text
 
 
-def test_onboard_returns_overview(tmp_task_env: Path) -> None:
-    result = run(mcp.call_tool("onboard", {}))
+def test_get_overview_returns_overview(tmp_task_env: Path) -> None:
+    result = run(mcp.call_tool("get_overview", {}))
     text = _text(result)
     assert isinstance(text, str)
     assert len(text) > 0
@@ -173,7 +173,7 @@ def test_stdio_process_initialize(tmp_task_env: Path) -> None:
         assert tools_resp.get("id") == 2
         tools = {t["name"] for t in tools_resp["result"]["tools"]}
         assert "list_tasks" in tools
-        assert "onboard" in tools
+        assert "get_overview" in tools
         assert len(tools) >= 22, f"ツール数が少ない: {len(tools)}"
     finally:
         proc.terminate()

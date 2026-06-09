@@ -66,8 +66,8 @@ class InteractiveShell:
 
         typer.echo("task-py インタラクティブシェル（exit / quit で終了）")
 
-        from task_cli.cli.commands.onboard import onboard
-        onboard()
+        from task_cli.cli.commands.onboard import overview
+        overview()
 
         while True:
             try:

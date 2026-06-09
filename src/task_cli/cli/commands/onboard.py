@@ -10,7 +10,7 @@ from task_cli.services.task_manager import TaskFilter
 console = Console()
 
 
-def onboard() -> None:
+def overview() -> None:
     """現在の状況を要約表示します。"""
     svc = get_global_config_service()
     active = svc.get_active_project()
