@@ -241,6 +241,7 @@ uv tool install git+https://github.com/kanan4gh/dev-tasks2-py.git
 | `resume_routine` | ルーティーンを再開 |
 | `delete_routine` | ルーティーン削除 |
 | `get_daily_stats` | 直近7日の達成率 |
+| `get_mcp_stats` | ツール別呼び出し回数の統計 |
 
 CLI（`task-py`）と MCP サーバーは同じ `~/.task-py/` のデータを共有します。
 
