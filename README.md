@@ -179,6 +179,71 @@ uv tool uninstall dev-tasks2-py
 rm -rf ~/.task-py/
 ```
 
+## MCP サーバー（Claude との連携）
+
+task-py は MCP サーバーとして動作し、Claude との会話でタスクを自然言語管理できます。
+
+### インストール
+
+```bash
+uv tool install git+https://github.com/kanan4gh/dev-tasks2-py.git
+```
+
+### Claude Code / Claude Desktop への登録
+
+インストール後、`~/.claude.json`（Claude Code）または `~/Library/Application Support/Claude/claude_desktop_config.json`（Claude Desktop / Mac）に以下を追加してください:
+
+```json
+{
+  "mcpServers": {
+    "task-py": {
+      "command": "task-mcp"
+    }
+  }
+}
+```
+
+> **uvx で都度実行する場合（インストール不要）**:
+> ```json
+> {
+>   "mcpServers": {
+>     "task-py": {
+>       "command": "uvx",
+>       "args": ["--from", "git+https://github.com/kanan4gh/dev-tasks2-py.git", "task-mcp"]
+>     }
+>   }
+> }
+> ```
+
+### 公開ツール一覧
+
+| ツール | 説明 |
+|--------|------|
+| `list_tasks` | タスク一覧取得（ステータス絞り込み対応） |
+| `add_task` | タスク作成 |
+| `show_task` | タスク詳細取得 |
+| `start_task` | タスクを in_progress に変更 |
+| `complete_task` | タスクを completed に変更 |
+| `delete_task` | タスク削除 |
+| `archive_task` | タスクを archived に変更 |
+| `edit_task` | タスク属性の編集 |
+| `move_task` | タスクをプロジェクト間で移動 |
+| `search_tasks` | キーワード検索 |
+| `get_active_project` | 現在のアクティブプロジェクト取得 |
+| `list_projects` | プロジェクト一覧取得 |
+| `create_project` | プロジェクト作成 |
+| `use_project` | アクティブプロジェクト切り替え |
+| `onboard` | 現在の状況概観（プロジェクト・ルーティーン・タスク） |
+| `list_routines` | 今日のルーティーン一覧 |
+| `add_routine` | ルーティーン登録 |
+| `complete_routine` | ルーティーンを済にする |
+| `pause_routine` | ルーティーンを一時停止 |
+| `resume_routine` | ルーティーンを再開 |
+| `delete_routine` | ルーティーン削除 |
+| `get_daily_stats` | 直近7日の達成率 |
+
+CLI（`task-py`）と MCP サーバーは同じ `~/.task-py/` のデータを共有します。
+
 ## 開発者向け
 
 ```bash
