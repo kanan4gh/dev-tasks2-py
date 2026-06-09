@@ -7,6 +7,7 @@ from task_cli.services.daily_service import DailyService
 from task_cli.services.project_service import ProjectService
 from task_cli.services.task_manager import TaskFilter
 from task_cli.storage.global_config_storage import GlobalConfigStorage
+from task_mcp.tracking import read_stats, track
 
 mcp = FastMCP("task-py")
 
@@ -38,6 +39,7 @@ def _fmt_task(task: object) -> str:
 
 
 @mcp.tool()
+@track
 def list_tasks(status: str | None = None) -> str:
     """アクティブプロジェクト（または Inbox）のタスク一覧を返す。
     status に "open" / "in_progress" / "completed" / "archived" を指定して絞り込み可能。
@@ -56,6 +58,7 @@ def list_tasks(status: str | None = None) -> str:
 
 
 @mcp.tool()
+@track
 def add_task(
     title: str,
     description: str = "",
@@ -72,6 +75,7 @@ def add_task(
 
 
 @mcp.tool()
+@track
 def show_task(id: int) -> str:
     """指定 ID のタスク詳細を返す。"""
     uc = get_use_case()
@@ -82,6 +86,7 @@ def show_task(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def start_task(id: int) -> str:
     """タスクのステータスを in_progress に変更する。"""
     uc = get_use_case()
@@ -93,6 +98,7 @@ def start_task(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def complete_task(id: int) -> str:
     """タスクのステータスを completed に変更する。"""
     uc = get_use_case()
@@ -104,6 +110,7 @@ def complete_task(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def delete_task(id: int) -> str:
     """タスクを削除する。確認プロンプトはない。"""
     uc = get_use_case()
@@ -117,6 +124,7 @@ def delete_task(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def archive_task(id: int) -> str:
     """タスクのステータスを archived に変更する。"""
     uc = get_use_case()
@@ -128,6 +136,7 @@ def archive_task(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def edit_task(
     id: int,
     title: str | None = None,
@@ -159,6 +168,7 @@ def edit_task(
 
 
 @mcp.tool()
+@track
 def move_task(id: int, target_project: str | None = None) -> str:
     """タスクを別のプロジェクトに移動する。target_project を省略すると Inbox に移動する。"""
     uc = get_use_case()
@@ -171,6 +181,7 @@ def move_task(id: int, target_project: str | None = None) -> str:
 
 
 @mcp.tool()
+@track
 def search_tasks(keyword: str) -> str:
     """タイトル・説明をキーワードで検索する（大文字小文字を区別しない部分一致）。"""
     uc = get_use_case()
@@ -187,6 +198,7 @@ def search_tasks(keyword: str) -> str:
 
 
 @mcp.tool()
+@track
 def get_active_project() -> str:
     """現在のアクティブプロジェクト名を返す。Inbox モードの場合は 'Inbox' を返す。"""
     svc = get_global_config_service()
@@ -195,6 +207,7 @@ def get_active_project() -> str:
 
 
 @mcp.tool()
+@track
 def list_projects() -> str:
     """プロジェクト一覧を返す。アクティブプロジェクトには * を付ける。"""
     svc = get_global_config_service()
@@ -212,6 +225,7 @@ def list_projects() -> str:
 
 
 @mcp.tool()
+@track
 def create_project(name: str) -> str:
     """プロジェクトを作成し、アクティブプロジェクトに切り替える。"""
     storage = GlobalConfigStorage()
@@ -224,6 +238,7 @@ def create_project(name: str) -> str:
 
 
 @mcp.tool()
+@track
 def use_project(name: str | None = None) -> str:
     """アクティブプロジェクトを切り替える。name を省略すると Inbox モードに切り替える。"""
     svc = get_global_config_service()
@@ -243,6 +258,7 @@ def use_project(name: str | None = None) -> str:
 
 
 @mcp.tool()
+@track
 def get_overview() -> str:
     """現在の状況概観を返す。アクティブプロジェクト・今日のルーティーン・着手すべきタスク・全タスクサマリーを含む。"""
     svc = get_global_config_service()
@@ -295,6 +311,7 @@ def get_overview() -> str:
 
 
 @mcp.tool()
+@track
 def list_routines(include_paused: bool = False) -> str:
     """今日のルーティーン一覧を返す。include_paused=true で一時停止中も含める。"""
     svc = DailyService()
@@ -310,6 +327,7 @@ def list_routines(include_paused: bool = False) -> str:
 
 
 @mcp.tool()
+@track
 def add_routine(title: str) -> str:
     """ルーティーンを登録する。"""
     svc = DailyService()
@@ -318,6 +336,7 @@ def add_routine(title: str) -> str:
 
 
 @mcp.tool()
+@track
 def complete_routine(id: int) -> str:
     """指定 ID のルーティーンを今日の分として済にする。"""
     svc = DailyService()
@@ -329,6 +348,7 @@ def complete_routine(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def pause_routine(id: int) -> str:
     """ルーティーンを一時停止する（list から非表示になる）。"""
     svc = DailyService()
@@ -340,6 +360,7 @@ def pause_routine(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def resume_routine(id: int) -> str:
     """一時停止中のルーティーンを再開する。"""
     svc = DailyService()
@@ -351,6 +372,7 @@ def resume_routine(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def delete_routine(id: int) -> str:
     """ルーティーンを削除する。実績ログも削除される。"""
     svc = DailyService()
@@ -362,6 +384,7 @@ def delete_routine(id: int) -> str:
 
 
 @mcp.tool()
+@track
 def get_daily_stats() -> str:
     """直近7日のルーティーン日別達成率を返す。"""
     svc = DailyService()
@@ -373,3 +396,13 @@ def get_daily_stats() -> str:
         rate = f"{s['rate']:.0%}" if s["rate"] is not None else "  -  "
         lines.append(f"{s['date']}  {s['done']:>4}  {s['total']:>4}  {rate:>5}")
     return "\n".join(lines)
+
+
+# ─── Observability ──────────────────────────────────────────────────
+
+
+@mcp.tool()
+@track
+def get_mcp_stats() -> str:
+    """MCPツールの呼び出し統計を返す。どのツールが何回呼ばれたかを確認できる。"""
+    return read_stats()

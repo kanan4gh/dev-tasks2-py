@@ -23,6 +23,8 @@ EXPECTED_TOOLS = {
     # ルーティーン管理
     "list_routines", "add_routine", "complete_routine", "pause_routine",
     "resume_routine", "delete_routine", "get_daily_stats",
+    # observability
+    "get_mcp_stats",
 }
 
 
@@ -174,7 +176,73 @@ def test_stdio_process_initialize(tmp_task_env: Path) -> None:
         tools = {t["name"] for t in tools_resp["result"]["tools"]}
         assert "list_tasks" in tools
         assert "get_overview" in tools
-        assert len(tools) >= 22, f"ツール数が少ない: {len(tools)}"
+        assert len(tools) >= 23, f"ツール数が少ない: {len(tools)}"
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+
+# ─── tracking テスト ─────────────────────────────────────────────────
+
+
+def test_track_writes_log(tmp_task_env: Path) -> None:
+    """@track デコレータが JSONL ログを書き込むことを確認。"""
+    import json
+    from task_mcp.tracking import _LOG_PATH, track
+
+    log_path = tmp_task_env / "mcp_calls.jsonl"
+
+    @track
+    def dummy_tool() -> str:
+        return "ok"
+
+    import unittest.mock as mock
+    with mock.patch.object(_LOG_PATH.__class__, "expanduser", return_value=log_path):
+        from task_mcp import tracking
+        orig = tracking._LOG_PATH
+        tracking._LOG_PATH = log_path  # type: ignore[assignment]
+        try:
+            dummy_tool()
+        finally:
+            tracking._LOG_PATH = orig
+
+    assert log_path.exists()
+    entry = json.loads(log_path.read_text().strip())
+    assert entry["tool"] == "dummy_tool"
+    assert entry["ok"] is True
+    assert "elapsed_ms" in entry
+    assert "ts" in entry
+
+
+def test_read_stats_no_log(tmp_path: Path) -> None:
+    """ログファイルが存在しない場合のフォールバック確認。"""
+    from task_mcp.tracking import read_stats
+    result = read_stats(tmp_path / "nonexistent.jsonl")
+    assert "ログがまだありません" in result
+
+
+def test_read_stats_returns_summary(tmp_path: Path) -> None:
+    """read_stats() が正しい集計文字列を返すことを確認。"""
+    import json
+    from task_mcp.tracking import read_stats
+
+    log_path = tmp_path / "mcp_calls.jsonl"
+    entries = [
+        {"ts": "2026-06-10T00:00:00+00:00", "tool": "list_tasks", "elapsed_ms": 10, "ok": True},
+        {"ts": "2026-06-10T00:01:00+00:00", "tool": "list_tasks", "elapsed_ms": 8, "ok": True},
+        {"ts": "2026-06-10T00:02:00+00:00", "tool": "add_task", "elapsed_ms": 5, "ok": True},
+    ]
+    log_path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+
+    result = read_stats(log_path)
+    assert "総呼び出し数: 3 件" in result
+    assert "list_tasks: 2" in result
+    assert "add_task: 1" in result
+
+
+def test_get_mcp_stats_tool(tmp_task_env: Path) -> None:
+    """get_mcp_stats ツールの呼び出しテスト。"""
+    result = run(mcp.call_tool("get_mcp_stats", {}))
+    text = _text(result)
+    assert isinstance(text, str)
+    assert len(text) > 0
