@@ -294,15 +294,21 @@ def get_overview() -> str:
     # 全プロジェクト横断サマリー
     active_filter = TaskFilter(status=[TaskStatus.OPEN, TaskStatus.IN_PROGRESS])
     all_projects = uc.list_all_projects(active_filter)
+    ordered_projects = [(k, v) for k, v in all_projects.items() if k is not None and v]
+    inbox_tasks = all_projects.get(None, [])
     has_tasks = any(v for v in all_projects.values())
     if has_tasks:
         lines.append("\n【全タスクサマリー (open + in_progress)】")
-        for proj_name, tasks in all_projects.items():
-            if not tasks:
-                continue
-            proj_label = f"Project: {proj_name}" if proj_name else "Inbox"
+        for proj_name, tasks in ordered_projects:
             in_prog = sum(1 for t in tasks if t.status == TaskStatus.IN_PROGRESS)
-            lines.append(f"  {proj_label}: {len(tasks)} 件 (in_progress: {in_prog})")
+            lines.append(f"  [Project: {proj_name}] {len(tasks)} 件 (in_progress: {in_prog})")
+            for t in tasks:
+                lines.append(f"    • {t.id}  [{t.status.value}]  {t.title}")
+        if inbox_tasks:
+            in_prog = sum(1 for t in inbox_tasks if t.status == TaskStatus.IN_PROGRESS)
+            lines.append(f"  [Inbox] {len(inbox_tasks)} 件 (in_progress: {in_prog})")
+            for t in inbox_tasks:
+                lines.append(f"    • 0-{t.id}  [{t.status.value}]  {t.title}")
 
     return "\n".join(lines)
 
