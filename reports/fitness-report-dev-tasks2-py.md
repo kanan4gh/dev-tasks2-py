@@ -1,4 +1,4 @@
-> [!note] これは project-ouroboros の計測レポートのコピー(2026-07-05 計測)。正典は project-ouroboros/reports/。再計測のたびに更新される。
+> [!note] これは project-ouroboros の計測レポートのコピー(2026-07-06 計測)。正典は project-ouroboros/reports/。再計測のたびに更新される。
 
 # 適応度レポート: dev-tasks2-py
 
@@ -26,19 +26,23 @@
 
 **対応付け率: 10/11**(H2の照合材料)
 
+### express ユニット(軽量レーン)
+
+- 20260521-change-storage-dir-express → bd28a66(exact)
+- 20260521-rename-command-task-py-express → b4227ee(exact)
+- 20260607-migrate-priority-keyerror-express → d64e146(exact)
+- 20260609-restore-japanese-descriptions-express → e9a0866(exact)
+- 20260610-rename-onboard-to-overview-express → cb4b8e8(exact)
+- 20260617-mcp-overview-task-details-express → 45da7ed(exact)
+- 20260706-harness-rollout-express → 75049ec(unmatched)
+
 ### シャドー作業(ステアリング外の実質作業)
 
-**シャドー作業率: 6/16**(実質作業単位 = 全マージPR + chore/version bump を除く直接コミット)
+**シャドー作業率: 0/16**(実質作業単位 = 全マージPR + chore/version bump を除く直接コミット)
 
-- 45da7ed Merge pull request #24 from kanan4gh/fix/mcp-overview-task-details
-- cb4b8e8 Merge pull request #21 from kanan4gh/feature/rename-onboard-to-overview
-- bd28a66 Merge pull request #3 from kanan4gh/feature/change-storage-dir
-- b4227ee Merge pull request #2 from kanan4gh/feature/rename-command-task-py
-- e9a0866 fix: get_overview の description を日本語に戻す
-- d64e146 fix: migrate で priority フィールドがないタスクのKeyErrorを修正 (v0.7.1)
 
-**観測被覆率: 10/16**(正規 10 + express 0)
-ガード指標 — 正規:express 比率: 10:0(軽量レーンが正規レーンを侵食していないかの監視用)
+**観測被覆率: 16/16**(正規 10 + express 6)
+ガード指標 — 正規:express 比率: 10:7(軽量レーンが正規レーンを侵食していないかの監視用)
 
 ## 指標1: 欠陥漏出
 
@@ -47,14 +51,14 @@
 | 20260402-dev-tasks2-py-setup | b8a804f | 0 | 45 |
 | 20260522-aws-devcontainer-starter | 0 | 0 | — |
 | 20260606-implement-p0-remaining | e189b4d | 0 | 28 |
-| 20260606-implement-remaining-commands | 0 | 0 | 28 |
+| 20260606-implement-remaining-commands | 0 | 0 | 29 |
 | 20260606-implement-shell-command | 0 | 0 | 28 |
-| 20260607-fix-shell-onboard-display | 0 | 0 | 27 |
+| 20260607-fix-shell-onboard-display | 0 | 0 | 28 |
 | 20260607-implement-edit-schedule | 0 | 0 | 28 |
 | 20260607-implement-migrate | d64e146 | 0 | 28 |
 | 20260607-ux-improvements-from-install-review | 0 | 0 | 28 |
-| 20260608-implement-mcp-server | 61e12a6 | 0 | 25 |
-| 20260610-mcp-observability | 0 | 0 | 25 |
+| 20260608-implement-mcp-server | 61e12a6 | 0 | 26 |
+| 20260610-mcp-observability | 0 | 0 | 26 |
 
 集計: 強い帰属 4 件 / 弱い帰属 0 件
 
