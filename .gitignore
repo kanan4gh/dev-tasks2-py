@@ -6,3 +6,9 @@ dist/
 .pytest_cache/
 .pyright/
 .claude/settings.local.json
+
+# macOS
+.DS_Store
+
+# Claude Code のローカル設定（環境依存のため共有しない）
+.claude/settings.json
