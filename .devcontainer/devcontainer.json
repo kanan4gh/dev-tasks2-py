@@ -6,8 +6,6 @@
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
 
-    "ghcr.io/devcontainers/features/aws-cli:1": {},
-
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
 
     "ghcr.io/devcontainers/features/github-cli:1": {}
@@ -17,6 +15,7 @@
 
   "mounts": [
     "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/Library/Mobile Documents/iCloud~md~obsidian/Documents/ObsidianRepository2026,target=/home/vscode/obsidian,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
   ],
 
@@ -32,7 +31,6 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "ms-azuretools.vscode-docker",
-        "amazonwebservices.aws-toolkit-vscode",
         "tamasfe.even-better-toml"
       ],
 
