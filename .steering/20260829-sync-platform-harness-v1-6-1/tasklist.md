@@ -28,15 +28,15 @@
 - [x] 同期用steeringのrequirements / design / tasklist作成
 - [x] 差分調査と同期manifest作成（design.md）
 - [x] bootstrap executorとauthority handoff時点の明記
-- [ ] **G1: ユーザーによる計画承認**
+- [x] **G1: ユーザーによる計画承認**（2026-08-29 承認）
 
 ## フェーズ2: G2競合裁定
 
-- [ ] **G2: 既存18ステアリング27違反の処遇裁定（案A / 案B / 案C）**
-- [ ] `.gitignore` の `.steering/*` 無視と `.claude/settings.json` の扱いを裁定
-- [ ] `.claude/settings.json` の権限方針を裁定
-- [ ] `.claude/skills/steering/templates/` と `micro.md` の去就を裁定
-- [ ] 裁定結果をdesign.mdへ反映
+- [x] **G2: 既存18ステアリング27違反の処遇裁定** → 案A（LEGACY grandfather）
+- [x] `.gitignore` の `.steering/*` 無視は採用しない（追跡継続）
+- [x] `.claude/settings.json` は正典の方針を採用して追跡
+- [x] `.claude/skills/steering/templates/` は廃止し `docs/procedures/templates/` へ移行
+- [x] 裁定結果をdesign.mdへ反映
 
 ## フェーズ3: 移行
 

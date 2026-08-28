@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from task_cli.exceptions import AppError
-from task_cli.models.daily import DailyLog, DailyLogEntry, Routine
+from task_cli.models.daily import DailyLogEntry, Routine
 from task_cli.storage.daily_log_storage import DailyLogStorage
 from task_cli.storage.routine_storage import RoutineStorage
 
@@ -99,7 +99,7 @@ class DailyService:
 
     def stats(self) -> list[dict[str, object]]:
         logs = self._logs.load_all()
-        logs.sort(key=lambda l: l.date, reverse=True)
+        logs.sort(key=lambda entry: entry.date, reverse=True)
         result = []
         for log in logs[:7]:
             active = [e for e in log.entries if True]

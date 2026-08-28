@@ -30,10 +30,10 @@ class DailyLogStorage:
 
     def save(self, log: DailyLog) -> None:
         logs = self.load_all()
-        logs = [l for l in logs if l.date != log.date]
+        logs = [entry for entry in logs if entry.date != log.date]
         logs.insert(0, log)
         # 日付降順にして直近30日だけ保持
-        logs.sort(key=lambda l: l.date, reverse=True)
+        logs.sort(key=lambda entry: entry.date, reverse=True)
         logs = logs[:_MAX_DAYS]
         self._write(logs)
 
@@ -42,7 +42,7 @@ class DailyLogStorage:
 
     def _write(self, logs: list[DailyLog]) -> None:
         self._ensure_directory()
-        data = [l.model_dump(mode="json") for l in logs]
+        data = [entry.model_dump(mode="json") for entry in logs]
         with self._path.open("w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 

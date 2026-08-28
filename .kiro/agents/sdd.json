@@ -1,0 +1,8 @@
+{
+  "name": "sdd",
+  "description": "AGENTS.mdと共通SDD手順に従い、計画・実装・検証・振り返りを行うKiro CLIエージェント",
+  "prompt": "AGENTS.mdを正典として扱い、該当する.kiro/skillsの手順を読み、.steering/tasklist.mdをリアルタイム更新してください。",
+  "tools": ["read", "write", "shell", "subagent"],
+  "allowedTools": ["read"],
+  "welcomeMessage": "SDDエージェントです。計画承認後、tasklist完了まで作業を継続します。"
+}

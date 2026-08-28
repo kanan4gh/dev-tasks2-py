@@ -152,3 +152,27 @@ bootstrap executorは Claude Code。旧ハーネスもClaude専用のため、�
 3. `uv run python3 scripts/local_quality_gate.py` の全5検査（pytest / ruff / basedpyright / steering lint / metered automation lint）がパスすること
 4. G3対話型受け入れの要否を確定する。アダプタ・権限・hooksを新規導入するため **G3は必要** と見込む
 5. GitHub Actions自動run 0件、有料LLM headless mode 0件を記録する
+
+---
+
+## G2裁定結果（2026-08-29 ユーザー裁定）
+
+| 競合 | 裁定 |
+|---|---|
+| 既存18ステアリングの27違反 | **案A: LEGACY grandfather**。`scripts/steering_lint.py` に移行前ステアリングの限定列挙を追加し、履歴を改変しない |
+| `.gitignore` の `.steering/*` 無視 | **採用しない**。`.steering/` の追跡を継続する（ouroboros計測の基礎データのため） |
+| `.claude/settings.json` | **正典の方針を採用して追跡**。`bypassPermissions` をやめ、読み取り・検証系のみ自動・書き込み系は都度確認へ切り替える |
+| `.devcontainer/` | 本プロジェクトの構成（AWS CLI手動インストール + Obsidianマウント）を正とし、正典のCDK / SAMは取り込まない |
+| `pyproject.toml` | `[project]` とプロダクト依存は本プロジェクトを正。dev依存を `pyright` → `basedpyright` へ替え `ruff` を追加、`[tool.ruff]` / `[tool.basedpyright]` を導入 |
+| `.claude/skills/steering/templates/` | 正典の配置（`docs/procedures/templates/`）へ移行し、旧配置は削除。`micro.md` は案Aにより既存履歴の参照先として不要になるため削除する |
+| `uv.lock` | dev依存変更に伴い `uv sync` で再生成 |
+
+### 案Aの実装方針
+
+`scripts/steering_lint.py` へ、移行前ステアリングを限定列挙する定数を追加する。
+outfit-studio の `LEGACY_WITHOUT_ISSUE_URL` と同型だが、本プロジェクトはC1・C2・C3・C4の4検査にまたがるため、
+検査横断の免除集合として1箇所に定義する。
+
+- 免除対象は **移行前に存在した18ディレクトリのみ**を名前で列挙する（前方一致・ワイルドカードは使わない）
+- 移行後に作られるステアリングは一切免除しない
+- 派生固有差分であることをコード内コメントに明記し、以後のrelease同期で温存する

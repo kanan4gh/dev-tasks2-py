@@ -1,0 +1,83 @@
+// .mcp.json サンプル
+//
+// このファイルを参考に .mcp.json を作成してください。
+// 不要なサーバーは削除し、接続情報をプロジェクトに合わせて変更してください。
+//
+// 【2層構造の原則】
+//   プラットフォーム層（GitHub、ファイルシステム等）
+//     → Claude Code のユーザー設定に配置（全プロジェクト共通）
+//   プロジェクト固有層（AWS、DB 等）
+//     → .mcp.json に配置（プロジェクトの技術スタックに応じて選択）
+//
+// 【追加手順】
+//   1. 必要なサーバーのコメントを外す（またはブロックをコピー）
+//   2. 接続情報・リージョン・DSN 等をプロジェクトに合わせて変更
+//   3. .mcp.json として保存（// コメントを除いた valid JSON にすること）
+//   4. Claude Code を再起動してサーバーが認識されたか確認
+{
+  "mcpServers": {
+
+    // ─── AWS プロジェクト ─────────────────────────────────────────────────
+    //
+    // aws-mcp: AWS サービスのドキュメント検索・API 呼び出し
+    //   - CDK や SAM でインフラを書くとき
+    //   - AWS サービスの仕様・料金を調べるとき
+    //   AWS_REGION を実際に使うリージョンに変更すること
+    "aws-mcp": {
+      "command": "uvx",
+      "args": [
+        "mcp-proxy-for-aws@latest",
+        "https://aws-mcp.us-east-1.api.aws/mcp",
+        "--metadata", "AWS_REGION=ap-northeast-1"
+      ]
+    },
+
+    // awslabs.aws-iac-mcp-server: CDK / CloudFormation の検証・ドキュメント検索
+    //   - CDK コードのレビュー・ベストプラクティス確認
+    //   - CloudFormation テンプレートの lint / compliance チェック
+    //   aws-mcp と組み合わせて使うと効果的
+    "awslabs.aws-iac-mcp-server": {
+      "command": "uvx",
+      "args": ["awslabs.aws-iac-mcp-server@latest"],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+
+    // ─── データベース ─────────────────────────────────────────────────────
+    //
+    // postgres: PostgreSQL への直接クエリ
+    //   - スキーマ設計・マイグレーション作業
+    //   - データ確認・デバッグ
+    //   DSN を実際の接続文字列に変更すること（本番 DB への接続は避けること）
+    // "postgres": {
+    //   "command": "npx",
+    //   "args": [
+    //     "-y", "@modelcontextprotocol/server-postgres",
+    //     "postgresql://user:password@localhost:5432/mydb"
+    //   ]
+    // },
+
+    // sqlite: SQLite ファイルへの直接クエリ
+    //   - ローカル開発・テスト用 DB の確認
+    // "sqlite": {
+    //   "command": "uvx",
+    //   "args": ["mcp-server-sqlite", "--db-path", "./data/local.db"]
+    // },
+
+    // ─── ドキュメント・ナレッジ ───────────────────────────────────────────
+    //
+    // filesystem: ローカルのファイル・ドキュメントへのアクセス
+    //   - プロジェクト外の社内ドキュメントを参照したいとき
+    //   - 複数リポジトリにまたがる情報を扱うとき
+    //   ※ リポジトリ内ファイルは Read ツールで十分なため通常不要
+    // "filesystem": {
+    //   "command": "npx",
+    //   "args": [
+    //     "-y", "@modelcontextprotocol/server-filesystem",
+    //     "/path/to/shared/docs"
+    //   ]
+    // }
+
+  }
+}
