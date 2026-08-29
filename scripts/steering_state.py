@@ -13,12 +13,12 @@ import tempfile
 from typing import Sequence
 
 from steering_lint import (
-    PLACEHOLDER_PATTERN,
     RETROSPECTIVE_HEADING,
     STEERING_DIR_PATTERN,
     find_incomplete_tasks,
     find_latest_tasklist,
     find_pause_record,
+    find_retrospective_placeholders,
     has_retrospective_content,
     missing_pause_record_labels,
     parse_task_state,
@@ -214,12 +214,11 @@ def complete_text(text: str, *, harness: str, timestamp: str) -> str:
         raise TransitionError(
             f"未完了タスクが{len(incomplete)}件あります(先頭: {incomplete[0]})"
         )
-    _, separator, retrospective = text.partition(RETROSPECTIVE_HEADING)
-    if not separator:
+    if RETROSPECTIVE_HEADING not in text:
         raise TransitionError("「実装後の振り返り」セクションがありません")
     if not has_retrospective_content(text):
         raise TransitionError("「実装後の振り返り」が未記入です")
-    placeholders = PLACEHOLDER_PATTERN.findall(retrospective)
+    placeholders = find_retrospective_placeholders(text)
     if placeholders:
         raise TransitionError(
             f"振り返りにプレースホルダがあります(先頭: {placeholders[0]})"

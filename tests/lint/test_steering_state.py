@@ -184,6 +184,38 @@ def test_complete_rejects_retrospective_placeholder() -> None:
         state_mod.complete_text(text, harness="Codex", timestamp=TIMESTAMP)
 
 
+def test_complete_allows_retrospective_code_spans() -> None:
+    """Issue #55の実症状。コード片を引用したままcompleteへ遷移できる。"""
+    retrospective = (
+        "## 実装後の振り返り\n\n### 学んだこと\n\n"
+        "- storage_factory のキーをフルパス、ファイルを `{parent}_{name}` "
+        "のユニーク名に変更して解決\n\n"
+        "```python\n"
+        'd = {"key": 1}\n'
+        "```\n"
+    )
+    updated = state_mod.complete_text(
+        tasklist("active", "- [x] done", retrospective=retrospective),
+        harness="Claude Code",
+        timestamp=TIMESTAMP,
+    )
+    assert "- **状態**: complete" in updated
+
+
+def test_complete_rejects_bare_placeholder_beside_inline_code() -> None:
+    """インラインコードの外に残った裸のプレースホルダは従来どおり拒否する。"""
+    text = tasklist(
+        "active",
+        "- [x] done",
+        retrospective=(
+            "## 実装後の振り返り\n\n### 学んだこと\n\n"
+            "- `{parent}` は引用だが {YYYY-MM-DD} は未置換\n"
+        ),
+    )
+    with pytest.raises(state_mod.TransitionError, match=r"\{YYYY-MM-DD\}"):
+        state_mod.complete_text(text, harness="Claude Code", timestamp=TIMESTAMP)
+
+
 def test_complete_rejects_empty_retrospective() -> None:
     text = tasklist(
         "active",

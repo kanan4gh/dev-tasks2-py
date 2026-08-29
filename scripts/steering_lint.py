@@ -23,6 +23,7 @@ from typing import NamedTuple, Sequence
 STEERING_DIR_PATTERN = re.compile(r"^\d{8}-")
 INCOMPLETE_PATTERN = re.compile(r"^\s*- \[ \] (.+)$", re.MULTILINE)
 FENCE_PATTERN = re.compile(r"^[ \t]*(`{3,}|~{3,})")
+INLINE_CODE_PATTERN = re.compile(r"(?P<ticks>`+)[^\n]*?(?P=ticks)")
 ISSUE_URL_PATTERN = re.compile(r"github\.com/[^/\s]+/[^/\s]+/issues/\d+")
 PLACEHOLDER_PATTERN = re.compile(r"\{[^{}\n]+\}")
 LIGHTWEIGHT_PATTERN = re.compile(r"^- \*\*軽量パス\*\*: 適用[ \t]*$", re.MULTILINE)
@@ -132,6 +133,12 @@ def find_latest_tasklist(project_root: Path) -> Path | None:
 
 def strip_code_fences(text: str) -> str:
     """Markdownフェンス付きコードブロック内を空行化する。"""
+    stripped, _ = _strip_code_fences(text)
+    return stripped
+
+
+def _strip_code_fences(text: str) -> tuple[str, bool]:
+    """空行化した本文と、閉じられていないフェンスが残ったかを返す。"""
     lines = text.split("\n")
     stripped: list[str] = []
     open_marker: str | None = None
@@ -147,7 +154,7 @@ def strip_code_fences(text: str) -> str:
         if match is not None and _closes_fence(match, line, open_marker):
             open_marker = None
         stripped.append("")
-    return "\n".join(stripped)
+    return "\n".join(stripped), open_marker is not None
 
 
 def _closes_fence(match: re.Match[str], line: str, open_marker: str) -> bool:
@@ -155,6 +162,23 @@ def _closes_fence(match: re.Match[str], line: str, open_marker: str) -> bool:
     if marker[0] != open_marker[0] or len(marker) < len(open_marker):
         return False
     return not line[match.end() :].strip()
+
+
+def strip_inline_code(text: str) -> str:
+    """インラインコード(同一行で閉じたバッククォート列)を同じ長さの空白へ置換する。"""
+    return INLINE_CODE_PATTERN.sub(lambda match: " " * len(match.group(0)), text)
+
+
+def find_retrospective_placeholders(text: str) -> list[str]:
+    """振り返り本文の未置換プレースホルダを返す。コード表記は検査対象外とする。"""
+    _, separator, retrospective = text.partition(RETROSPECTIVE_HEADING)
+    if not separator:
+        return []
+    without_fences, unclosed = _strip_code_fences(retrospective)
+    if unclosed:
+        # 閉じられていないフェンスで以降を空行化すると検出漏れになるため除外しない
+        without_fences = retrospective
+    return PLACEHOLDER_PATTERN.findall(strip_inline_code(without_fences))
 
 
 def find_incomplete_tasks(text: str) -> list[str]:
@@ -324,12 +348,11 @@ def check_retrospective(
     state = context.effective
     if state.error is not None or state.value != "complete" or context.incomplete:
         return []
-    _, separator, retrospective = text.partition(RETROSPECTIVE_HEADING)
-    if not separator:
+    if RETROSPECTIVE_HEADING not in text:
         return [Violation(steering_dir.name, "C4", "「実装後の振り返り」セクションがありません")]
     if not has_retrospective_content(text):
         return [Violation(steering_dir.name, "C4", "「実装後の振り返り」が未記入です")]
-    placeholders = PLACEHOLDER_PATTERN.findall(retrospective)
+    placeholders = find_retrospective_placeholders(text)
     if not placeholders:
         return []
     return [
