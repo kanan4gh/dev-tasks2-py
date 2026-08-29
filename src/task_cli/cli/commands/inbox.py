@@ -1,4 +1,3 @@
-import typer
 
 from task_cli.cli.deps import get_global_config_service
 from task_cli.cli.renderer import render_success

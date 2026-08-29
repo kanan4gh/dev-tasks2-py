@@ -160,7 +160,7 @@ def migrate(
     routines_data = [r.model_dump(mode="json") for r in routines]
     _write_yaml(_PY_DIR / "daily" / "routines.yaml", routines_data)
 
-    logs_data = [l.model_dump(mode="json") for l in logs]
+    logs_data = [entry.model_dump(mode="json") for entry in logs]
     _write_yaml(_PY_DIR / "daily" / "log.yaml", logs_data)
 
     _print_summary(config, inbox_tasks, project_tasks, routines, logs, total_tasks)

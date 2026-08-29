@@ -369,7 +369,7 @@ class TestListAllProjects:
 
     def test_filter_applied_to_all_projects(self, tmp_path: Path) -> None:
         uc = make_use_case_with_projects(tmp_path, active_project="proj-a", project_names=["proj-a"])
-        t = uc.add_task("オープンタスク")
+        uc.add_task("オープンタスク")
         t2 = uc.add_task("完了タスク")
         uc.start_task(t2.id)
         uc.complete_task(t2.id)
@@ -391,7 +391,7 @@ class TestListInboxTasks:
     def test_filter_applied(self, tmp_path: Path) -> None:
         from task_cli.models.task import TaskStatus
         uc = make_use_case(tmp_path, active_project=None)
-        t = uc.add_task("オープン")
+        uc.add_task("オープン")
         t2 = uc.add_task("完了")
         uc.start_task(t2.id)
         uc.complete_task(t2.id)

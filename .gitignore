@@ -5,10 +5,19 @@ __pycache__/
 dist/
 .pytest_cache/
 .pyright/
+.ruff_cache/
 .claude/settings.local.json
+
+# フックの揮発状態(セッションローカル)
+.claude/hooks/state/
+
+# 入れ子の作業ツリー(EnterWorktree が作るリポジトリ内checkout)
+# 無視しないと、.gitignore を尊重するツール(ruff等)が作業ツリー内の
+# checkout全体を走査し、無関係な作業ツリーの状態でゲート結果が変わる
+.claude/worktrees/
 
 # macOS
 .DS_Store
 
-# Claude Code のローカル設定（環境依存のため共有しない）
-.claude/settings.json
+# NOTE: platform-harness テンプレートは `.steering/*` を無視するが、本プロダクトは
+# ステアリング履歴を適応度計測の基礎データとして追跡するため採用しない(AGENTS.md 参照)。

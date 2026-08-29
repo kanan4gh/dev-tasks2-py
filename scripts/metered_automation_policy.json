@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "signatures": [
+    {
+      "id": "claude-print-short",
+      "command": "claude",
+      "arguments": ["-p"]
+    },
+    {
+      "id": "claude-print-long",
+      "command": "claude",
+      "arguments": ["--print"]
+    },
+    {
+      "id": "codex-non-interactive",
+      "command": "codex",
+      "arguments": ["exec"]
+    }
+  ],
+  "include_paths": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    ".claude",
+    ".codex",
+    ".kiro",
+    ".github",
+    "scripts",
+    "tests",
+    "docs/procedures",
+    "docs/harness-guide.md",
+    "docs/architecture.md",
+    "docs/functional-design.md",
+    "docs/product-requirements.md",
+    "docs/repository-structure.md",
+    "docs/development-guidelines.md"
+  ],
+  "exclude_paths": [
+    ".steering",
+    ".claude/worktrees",
+    "docs/ideas",
+    "docs/external-automation-policy.md",
+    "scripts/metered_automation_policy.json",
+    "scripts/metered_automation_lint.py",
+    "tests/lint/test_metered_automation_lint.py",
+    ".git",
+    ".venv",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__"
+  ],
+  "extensions": [".json", ".md", ".py", ".sh", ".toml", ".yaml", ".yml"]
+}

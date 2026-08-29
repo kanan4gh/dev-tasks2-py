@@ -1,4 +1,3 @@
-import pytest
 
 from task_cli.cli.commands.migrate import (
     _convert_config,
@@ -6,7 +5,6 @@ from task_cli.cli.commands.migrate import (
     _convert_routines,
     _convert_tasks,
 )
-from task_cli.models.daily import DailyLogEntry
 from task_cli.models.task import GlobalConfig, Priority, TaskStatus
 
 
