@@ -309,6 +309,83 @@ def test_c4_complete_rejects_retrospective_placeholder(tmp_path: Path) -> None:
     assert ids(lint_mod.lint(tmp_path)) == ["C4"]
 
 
+def test_c4_allows_placeholder_inside_inline_code(tmp_path: Path) -> None:
+    """Issue #55の再現記述。コード片の引用を未置換プレースホルダと誤検出しない。"""
+    retrospective = (
+        "## 実装後の振り返り\n\n### 学んだこと\n\n"
+        "- storage_factory のキーをフルパス、ファイルを `{parent}_{name}` "
+        "のユニーク名に変更して解決\n"
+    )
+    make_steering(
+        tmp_path,
+        "20260829-inline-code",
+        tasklist_text=tasklist("complete", "- [x] done", retrospective=retrospective),
+    )
+    assert lint_mod.lint(tmp_path) == []
+
+
+def test_c4_rejects_bare_placeholder_beside_inline_code(tmp_path: Path) -> None:
+    """インラインコードの外に残った裸のプレースホルダは従来どおり違反にする。"""
+    retrospective = (
+        "## 実装後の振り返り\n\n### 学んだこと\n\n"
+        "- `{parent}` は引用だが {YYYY-MM-DD} は未置換\n"
+    )
+    make_steering(
+        tmp_path,
+        "20260829-bare-placeholder",
+        tasklist_text=tasklist("complete", "- [x] done", retrospective=retrospective),
+    )
+    violations = lint_mod.lint(tmp_path)
+    assert ids(violations) == ["C4"]
+    assert "{YYYY-MM-DD}" in violations[0].message
+    assert "{parent}" not in violations[0].message
+
+
+def test_c4_allows_placeholder_inside_code_fence(tmp_path: Path) -> None:
+    """振り返りのフェンス付きコードブロックも検査対象外にする。"""
+    retrospective = (
+        "## 実装後の振り返り\n\n### 学んだこと\n\n"
+        "```python\n"
+        'd = {"key": 1}\n'
+        "```\n"
+    )
+    make_steering(
+        tmp_path,
+        "20260829-fenced-code",
+        tasklist_text=tasklist("complete", "- [x] done", retrospective=retrospective),
+    )
+    assert lint_mod.lint(tmp_path) == []
+
+
+def test_c4_rejects_placeholder_after_unclosed_code_fence(tmp_path: Path) -> None:
+    """閉じていないフェンスで以降を空行化すると検出漏れになるため除外しない。"""
+    retrospective = (
+        "## 実装後の振り返り\n\n"
+        "```python\n"
+        "d = 1\n\n"
+        "### 学んだこと\n\n{YYYY-MM-DD}\n"
+    )
+    make_steering(
+        tmp_path,
+        "20260829-unclosed-fence",
+        tasklist_text=tasklist("complete", "- [x] done", retrospective=retrospective),
+    )
+    assert ids(lint_mod.lint(tmp_path)) == ["C4"]
+
+
+def test_c4_rejects_placeholder_after_unclosed_backtick(tmp_path: Path) -> None:
+    """閉じていないバッククォートでは除外せず、安全側で違反にする。"""
+    retrospective = (
+        "## 実装後の振り返り\n\n### 学んだこと\n\n- `{YYYY-MM-DD} 閉じていない\n"
+    )
+    make_steering(
+        tmp_path,
+        "20260829-unclosed-backtick",
+        tasklist_text=tasklist("complete", "- [x] done", retrospective=retrospective),
+    )
+    assert ids(lint_mod.lint(tmp_path)) == ["C4"]
+
+
 def test_c4_is_deferred_for_active_state(tmp_path: Path) -> None:
     make_steering(
         tmp_path,
