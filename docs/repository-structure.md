@@ -76,7 +76,10 @@ dev-tasks2-py/
 - `main.py`: typer アプリ定義。全サブコマンドを登録する
 - `deps.py`: ストレージ・サービス・ユースケースの組み立てファクトリ
 - `renderer.py`: rich を使ったテーブル表示・詳細表示・エラー表示
+- `editor.py`: `click.edit()` のラッパ。戻り値の型の絞り込み・末尾改行の正規化・例外の `AppError` 化をここに閉じ込める
 - `commands/*.py`: サブコマンドごとの関数定義
+
+なお `duration.py`（時間文字列のパースと整形）は CLI・MCP の両方から使うため、`exceptions.py` と同じくパッケージ直下の leaf モジュールに置く。`cli/` に置くと MCP → CLI の依存になり層構造が壊れる。
 
 **依存関係**:
 - 依存可能: `usecases/`, `services/`, `models/`
@@ -90,13 +93,18 @@ dev-tasks2-py/
 
 **主要クラス**:
 
-| クラス | 用途 |
-|-------|------|
-| `TaskStatus` | ステータス列挙型（open / in_progress / completed / archived） |
-| `Priority` | 優先度列挙型（high / medium / low） |
-| `Task` | タスクエンティティ。ステータス遷移可否を `can_transition_to()` で検査 |
-| `ProjectEntry` | プロジェクト名と ID のペア |
-| `GlobalConfig` | グローバル設定（activeProject・projects・lastProjectId） |
+| クラス | ファイル | 用途 |
+|-------|---------|------|
+| `TaskStatus` | `task.py` | ステータス列挙型（open / in_progress / completed / archived） |
+| `Priority` | `task.py` | 優先度列挙型（high / medium / low） |
+| `Task` | `task.py` | タスクエンティティ。ステータス遷移可否を `can_transition_to()` で検査。`completed_at`・`work_sessions` を保持する |
+| `ProjectEntry` | `task.py` | プロジェクト名と ID のペア |
+| `GlobalConfig` | `task.py` | グローバル設定（activeProject・projects・lastProjectId） |
+| `WorkSession` | `time.py` | 作業した1区間（開始・終了・秒数・記録元） |
+| `TimerState` / `TimerFile` | `time.py` | 実行中タイマーの宣言的な記録と、そのファイル表現 |
+| `Routine` / `DailyLogEntry` / `DailyLog` | `daily.py` | ルーティーン定義と日別ログ |
+
+`models/time.py` は `models/task.py` を import しない（`Task` 側が `WorkSession` を取り込むため、逆向きに依存すると循環する）。
 
 **依存関係**:
 - 依存可能: なし（他のどのレイヤーにも依存しない）
@@ -108,8 +116,11 @@ dev-tasks2-py/
 **役割**: 個別ドメインのビジネスロジック。
 
 **配置ファイル**:
-- `task_manager.py`: タスクの CRUD・ステータス遷移・検索・ソート。`TaskFilter` dataclass を含む
+- `task_manager.py`: タスクの CRUD・ステータス遷移・検索・ソート。`TaskFilter` dataclass を含む。ステータス変更は `_apply_status_change()` に集約し、`completed_at` の出入りをそこだけで決める
 - `global_config_service.py`: アクティブプロジェクトの取得・切り替え
+- `project_service.py`: プロジェクトの作成・削除・改名
+- `daily_service.py`: ルーティーンの管理と日別ログの集計
+- `timer_service.py`: タイマーの状態遷移と時刻計算。経過・残り時間は保存された開始時刻から都度導出する（カウントダウンを変数で持たない）
 
 **依存関係**:
 - 依存可能: `storage/`, `models/`
@@ -124,6 +135,9 @@ dev-tasks2-py/
 **配置ファイル**:
 - `file_storage.py`: `tasks.yaml` の読み書き。書き込み前に `.bak` を作成し、失敗時は自動復元
 - `global_config_storage.py`: `~/.task-py/config.yaml` の読み書き
+- `routine_storage.py`: `~/.task-py/daily/routines.yaml` の読み書き
+- `daily_log_storage.py`: `~/.task-py/daily/log.yaml` の読み書き（直近30日のみ保持）
+- `timer_storage.py`: `~/.task-py/timer.yaml` の読み書き。揮発的な状態なので `.bak` は作らず、壊れた内容は「タイマーなし」として扱う
 
 **依存関係**:
 - 依存可能: `models/`、Python 標準ライブラリ（`pathlib`, `os`, `shutil`）
@@ -137,6 +151,7 @@ dev-tasks2-py/
 
 **配置ファイル**:
 - `task_crud_usecase.py`: `GlobalConfigService` でアクティブプロジェクトを取得 → `~/.task-py/projects/<name>/tasks.yaml` または `~/.task-py/inbox/tasks.yaml` に解決 → `TaskManager` を生成して操作を委譲
+- `time_tracking_usecase.py`: タイマーとタスクストレージの調整。停止時は**タイマー開始時のプロジェクト**でパスを解決する（実行中に `project use` で切り替えられている可能性があるため）。`done` / `archive` / `delete` / `move` からのタイマー後始末もここに集約し、CLI と MCP で挙動がずれないようにする
 
 ---
 

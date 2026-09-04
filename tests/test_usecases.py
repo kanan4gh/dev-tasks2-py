@@ -1,9 +1,11 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from task_cli.exceptions import AppError
 from task_cli.models.task import GlobalConfig, Priority, ProjectEntry, TaskStatus
+from task_cli.models.time import WorkSession
 from task_cli.services.global_config_service import GlobalConfigService
 from task_cli.services.task_manager import TaskFilter, TaskManager
 from task_cli.storage.file_storage import FileStorage
@@ -19,6 +21,16 @@ def make_storage(tmp_path: Path, name: str = "tasks.yaml") -> FileStorage:
 
 def make_manager(tmp_path: Path) -> TaskManager:
     return TaskManager(make_storage(tmp_path))
+
+
+def make_session(seconds: int, source: str = "timer") -> WorkSession:
+    started = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+    return WorkSession(
+        started_at=started,
+        ended_at=started + timedelta(seconds=seconds),
+        seconds=seconds,
+        source="manual" if source == "manual" else "timer",
+    )
 
 
 def make_use_case(tmp_path: Path, active_project: str | None = None) -> TaskCrudUseCase:
@@ -174,6 +186,56 @@ class TestTaskManagerStatusTransitions:
         task = manager.archive_task(1)
         assert task.status == TaskStatus.ARCHIVED
 
+    def test_complete_records_completed_at(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        manager.start_task(1)
+        task = manager.complete_task(1)
+        assert task.completed_at is not None
+
+    def test_completed_at_is_none_before_completion(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        assert manager.get_task(1).completed_at is None
+        assert manager.start_task(1).completed_at is None
+
+    def test_archive_from_completed_keeps_completed_at(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        manager.start_task(1)
+        completed_at = manager.complete_task(1).completed_at
+        task = manager.archive_task(1)
+        assert task.completed_at == completed_at
+
+    def test_archive_from_open_leaves_completed_at_none(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        task = manager.archive_task(1)
+        assert task.completed_at is None
+
+    def test_editing_after_completion_keeps_completed_at(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        manager.start_task(1)
+        completed_at = manager.complete_task(1).completed_at
+        task = manager.edit_fields(1, title="新しいタイトル")
+        assert task.completed_at == completed_at
+        assert task.updated_at != completed_at
+
+    def test_leaving_completed_clears_completed_at(self, tmp_path: Path) -> None:
+        """完了から出る遷移が追加されたときに備えた、絞り口そのものの検証。
+
+        can_transition_to には現在 completed -> open の経路が無いため、
+        _apply_status_change を直接呼んで規則だけを確かめる。
+        """
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        manager.start_task(1)
+        manager.complete_task(1)
+        completed = manager.get_task(1)
+        task = manager._apply_status_change(completed, TaskStatus.OPEN)  # pyright: ignore[reportPrivateUsage]
+        assert task.completed_at is None
+
     def test_start_already_in_progress_raises(self, tmp_path: Path) -> None:
         manager = make_manager(tmp_path)
         manager.create_task("タスク")
@@ -213,6 +275,49 @@ class TestTaskManagerStatusTransitions:
         manager.create_task("タスク")
         task = manager.start_task(1)
         assert task.status == TaskStatus.IN_PROGRESS
+
+
+class TestTaskManagerWorkSessions:
+    def test_append_adds_session(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        task = manager.append_work_session(1, make_session(1200))
+        assert len(task.work_sessions) == 1
+        assert task.total_worked_seconds == 1200
+
+    def test_append_accumulates(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        manager.append_work_session(1, make_session(1200))
+        task = manager.append_work_session(1, make_session(600))
+        assert len(task.work_sessions) == 2
+        assert task.total_worked_seconds == 1800
+
+    def test_append_does_not_touch_updated_at(self, tmp_path: Path) -> None:
+        """作業時間の記録は内容の編集ではないので updated_at を動かしてはいけない。"""
+        manager = make_manager(tmp_path)
+        created = manager.create_task("タスク")
+        task = manager.append_work_session(1, make_session(1200))
+        assert task.updated_at == created.updated_at
+
+    def test_append_persists(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        manager.append_work_session(1, make_session(1200))
+        assert make_manager(tmp_path).get_task(1).total_worked_seconds == 1200
+
+    def test_append_to_missing_task_raises(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        with pytest.raises(AppError):
+            manager.append_work_session(99, make_session(60))
+
+    def test_sessions_survive_move(self, tmp_path: Path) -> None:
+        """move で ID が振り直されてもセッションが一緒に移ること。"""
+        uc = make_use_case(tmp_path, active_project=None)
+        uc.add_task("タスク")
+        uc._get_manager().append_work_session(1, make_session(1200))  # pyright: ignore[reportPrivateUsage]
+        moved = uc.move_task(1, "proj-a")
+        assert moved.total_worked_seconds == 1200
 
 
 class TestTaskManagerDelete:

@@ -1,11 +1,18 @@
 from mcp.server.fastmcp import FastMCP
 
-from task_cli.cli.deps import get_global_config_service, get_use_case
+from task_cli.cli.deps import (
+    get_global_config_service,
+    get_time_tracking_use_case,
+    get_use_case,
+)
+from task_cli.duration import format_duration, parse_duration
 from task_cli.exceptions import AppError
 from task_cli.models.task import Priority, TaskStatus
 from task_cli.services.daily_service import DailyService
 from task_cli.services.project_service import ProjectService
 from task_cli.services.task_manager import TaskFilter
+from task_cli.services.timer_service import TimerService
+from task_cli.usecases.time_tracking_usecase import StopResult
 from task_cli.storage.global_config_storage import GlobalConfigStorage
 from task_mcp.tracking import read_stats, track
 
@@ -32,6 +39,13 @@ def _fmt_task(task: object) -> str:
         lines.append(f"期限: {t.due_date}")
     if t.scheduled_date:
         lines.append(f"解禁日: {t.scheduled_date}")
+    if t.completed_at is not None:
+        lines.append(f"完了日時: {t.completed_at.strftime('%Y-%m-%d %H:%M')}")
+    elif t.status is TaskStatus.COMPLETED:
+        lines.append("完了日時: 記録なし")
+    if t.work_sessions:
+        total = format_duration(t.total_worked_seconds)
+        lines.append(f"作業時間: {total}（{len(t.work_sessions)} セッション）")
     return "\n".join(lines)
 
 
@@ -402,6 +416,112 @@ def get_daily_stats() -> str:
         rate = f"{s['rate']:.0%}" if s["rate"] is not None else "  -  "
         lines.append(f"{s['date']}  {s['done']:>4}  {s['total']:>4}  {rate:>5}")
     return "\n".join(lines)
+
+
+# ─── タイマー・作業時間ツール ────────────────────────────────────────
+
+# MCP からの起動は常にバックグラウンド相当である（残り時間を表示し続けると
+# ツール呼び出しがブロックしてしまう）。状態は ~/.task-py/timer.yaml に入るので、
+# CLI で開始したタイマーもここから見えるし、その逆も成り立つ。
+
+
+def _fmt_stop(result: StopResult) -> str:
+    elapsed = format_duration(result.elapsed_seconds)
+    if result.state.task_id is None:
+        text = f"タイマーを終了しました（経過 {elapsed}、タスク未指定のため未記録）。"
+    elif result.session is None:
+        text = (
+            f"タイマーを終了しましたが、タスク #{result.state.task_id} が"
+            f"見つからないため記録できませんでした（経過 {elapsed}）。"
+        )
+    else:
+        text = (
+            f"タスク #{result.state.task_id} に "
+            f"{format_duration(result.session.seconds)} を記録しました。"
+        )
+    if result.overrun_seconds > 0:
+        text += (
+            f"\n設定時間を {format_duration(result.overrun_seconds)} 超過した分は"
+            f"記録に含めていません（必要なら log_work_time で追加してください）。"
+        )
+    return text
+
+
+@mcp.tool()
+@track
+def start_timer(
+    duration: str | None = None,
+    task_id: int | None = None,
+    force: bool = False,
+) -> str:
+    """タイマーを開始する。duration は "20m" / "1h" / "30s" 形式（省略でストップウォッチ）。
+    task_id を指定すると、停止時にそのタスクへ作業時間が記録される。
+    既に実行中のタイマーがある場合はエラーになる（force=true で置き換え）。"""
+    try:
+        # 真偽値ではなく None かどうかで判定する。"" を「指定なし」として
+        # 受け流すと、書式ミスが黙って無限のストップウォッチになる。
+        seconds = parse_duration(duration) if duration is not None else None
+        started = get_time_tracking_use_case().start_timer(
+            duration_seconds=seconds, task_id=task_id, force=force
+        )
+    except AppError as e:
+        return _fmt_error(e)
+
+    lines: list[str] = []
+    if started.replaced is not None:
+        lines.append(_fmt_stop(started.replaced))
+    lines.append(f"タイマーを開始しました。\n{TimerService.describe(started.state)}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+@track
+def get_timer_status() -> str:
+    """実行中タイマーの状態を返す。CLI で開始したタイマーもここから見える。"""
+    state = get_time_tracking_use_case().status()
+    if state is None:
+        return "実行中のタイマーはありません。"
+    text = TimerService.describe(state)
+    if TimerService.is_expired(state):
+        text += "\n（時間切れです。stop_timer で作業時間を記録してください）"
+    return text
+
+
+@mcp.tool()
+@track
+def stop_timer() -> str:
+    """タイマーを終了し、経過時間を対象タスクの作業時間として記録する。"""
+    try:
+        result = get_time_tracking_use_case().stop_timer()
+    except AppError as e:
+        return _fmt_error(e)
+    return _fmt_stop(result)
+
+
+@mcp.tool()
+@track
+def cancel_timer() -> str:
+    """タイマーを破棄する。作業時間は記録しない。"""
+    try:
+        state = get_time_tracking_use_case().cancel_timer()
+    except AppError as e:
+        return _fmt_error(e)
+    return f"タイマーを破棄しました（{TimerService.describe(state)}）。"
+
+
+@mcp.tool()
+@track
+def log_work_time(task_id: int, duration: str) -> str:
+    """作業時間を手動で記録する。duration は "25m" / "1h" 形式。"""
+    try:
+        seconds = parse_duration(duration)
+        task = get_time_tracking_use_case().log_work(task_id, seconds)
+    except AppError as e:
+        return _fmt_error(e)
+    return (
+        f"タスク #{task.id} に {format_duration(seconds)} を記録しました"
+        f"（合計 {format_duration(task.total_worked_seconds)}）。"
+    )
 
 
 # ─── Observability ──────────────────────────────────────────────────

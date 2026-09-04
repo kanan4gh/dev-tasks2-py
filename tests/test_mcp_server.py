@@ -23,6 +23,8 @@ EXPECTED_TOOLS = {
     # ルーティーン管理
     "list_routines", "add_routine", "complete_routine", "pause_routine",
     "resume_routine", "delete_routine", "get_daily_stats",
+    # タイマー・作業時間
+    "start_timer", "get_timer_status", "stop_timer", "cancel_timer", "log_work_time",
     # observability
     "get_mcp_stats",
 }
@@ -60,12 +62,97 @@ def test_edit_task_schema() -> None:
         assert f in props, f"edit_task: '{f}' が properties にありません"
 
 
+def test_start_timer_arguments_are_optional() -> None:
+    """task time start 20m 相当の呼び出しを壊さないため、いずれも必須にしない。"""
+    tools = run(mcp.list_tools())
+    tool = next(t for t in tools if t.name == "start_timer")
+    schema = tool.inputSchema
+    required = schema.get("required", [])
+    assert "task_id" not in required
+    assert "duration" not in required
+    props = schema.get("properties", {})
+    for f in ["duration", "task_id", "force"]:
+        assert f in props, f"start_timer: '{f}' が properties にありません"
+
+
+def test_start_timer_rejects_empty_duration(tmp_task_env: Path) -> None:
+    """"" を「指定なし」として受け流すと、書式ミスが無限のストップウォッチになる。"""
+    result = run(mcp.call_tool("start_timer", {"duration": ""}))
+    text = _text(result)
+    assert "エラー" in text
+    assert "実行中のタイマーはありません" in _text(run(mcp.call_tool("get_timer_status", {})))
+
+
+def test_log_work_time_schema() -> None:
+    tools = run(mcp.list_tools())
+    tool = next(t for t in tools if t.name == "log_work_time")
+    required = tool.inputSchema.get("required", [])
+    assert "task_id" in required
+    assert "duration" in required
+
+
 def test_list_tasks_status_optional() -> None:
     tools = run(mcp.list_tools())
     tool = next(t for t in tools if t.name == "list_tasks")
     schema = tool.inputSchema
     required = schema.get("required", [])
     assert "status" not in required, "list_tasks: status が required になっています（optional であるべき）"
+
+
+# ─── タスク整形テスト ────────────────────────────────────────────────
+
+
+class TestFmtTask:
+    def test_completed_at_is_shown(self) -> None:
+        from datetime import datetime, timezone
+
+        from task_cli.models.task import Task, TaskStatus
+        from task_mcp.server import _fmt_task
+
+        task = Task(
+            id=1,
+            title="完了タスク",
+            status=TaskStatus.COMPLETED,
+            completed_at=datetime(2026, 7, 1, 12, 34, tzinfo=timezone.utc),
+        )
+        assert "完了日時: 2026-07-01 12:34" in _fmt_task(task)
+
+    def test_completed_without_timestamp_says_unrecorded(self) -> None:
+        from task_cli.models.task import Task, TaskStatus
+        from task_mcp.server import _fmt_task
+
+        task = Task(id=1, title="旧データ", status=TaskStatus.COMPLETED)
+        assert "完了日時: 記録なし" in _fmt_task(task)
+
+    def test_open_task_has_no_completed_line(self) -> None:
+        from task_cli.models.task import Task
+        from task_mcp.server import _fmt_task
+
+        assert "完了日時" not in _fmt_task(Task(id=1, title="未完了"))
+
+    def test_total_worked_time_is_shown(self) -> None:
+        from datetime import datetime, timezone
+
+        from task_cli.models.task import Task
+        from task_cli.models.time import WorkSession
+        from task_mcp.server import _fmt_task
+
+        started = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+        task = Task(
+            id=1,
+            title="作業済み",
+            work_sessions=[
+                WorkSession(started_at=started, ended_at=started, seconds=3600),
+                WorkSession(started_at=started, ended_at=started, seconds=1200),
+            ],
+        )
+        assert "作業時間: 1h 20m（2 セッション）" in _fmt_task(task)
+
+    def test_no_worked_line_without_sessions(self) -> None:
+        from task_cli.models.task import Task
+        from task_mcp.server import _fmt_task
+
+        assert "作業時間" not in _fmt_task(Task(id=1, title="未着手"))
 
 
 # ─── ツール呼び出しテスト（MCP プロトコル経由）──────────────────────

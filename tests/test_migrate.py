@@ -76,6 +76,27 @@ class TestConvertTasks:
         tasks = _convert_tasks(raw)
         assert tasks[0].due_date is None
         assert tasks[0].scheduled_date is None
+        assert tasks[0].completed_at is None
+
+    def test_completed_at_is_picked_up_when_present(self) -> None:
+        raw = [
+            {
+                "id": 3,
+                "title": "Done",
+                "description": "",
+                "status": "completed",
+                "priority": "medium",
+                "branch": None,
+                "dueDate": None,
+                "scheduledDate": None,
+                "createdAt": "2026-06-01T00:00:00+00:00",
+                "updatedAt": "2026-06-03T00:00:00+00:00",
+                "completedAt": "2026-06-02T00:00:00+00:00",
+            }
+        ]
+        tasks = _convert_tasks(raw)
+        assert tasks[0].completed_at is not None
+        assert tasks[0].completed_at.isoformat() == "2026-06-02T00:00:00+00:00"
 
     def test_empty_list(self) -> None:
         assert _convert_tasks([]) == []

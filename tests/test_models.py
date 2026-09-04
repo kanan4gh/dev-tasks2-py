@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from task_cli.models.task import GlobalConfig, Priority, ProjectEntry, Task, TaskStatus
+from task_cli.models.time import WorkSession
 
 
 class TestTaskStatus:
@@ -31,6 +32,44 @@ class TestTask:
         assert task.priority == Priority.MEDIUM
         assert task.branch is None
         assert task.due_date is None
+        assert task.completed_at is None
+
+    def test_validate_legacy_dict_without_completed_at(self) -> None:
+        """completed_at を持たない移行前の YAML をそのまま読めること。"""
+        task = Task.model_validate({
+            "id": 1,
+            "title": "旧データ",
+            "description": "",
+            "status": "completed",
+            "priority": "medium",
+            "branch": None,
+            "due_date": None,
+            "created_at": "2026-06-01T00:00:00+00:00",
+            "updated_at": "2026-06-02T00:00:00+00:00",
+            "scheduled_date": None,
+        })
+        assert task.status == TaskStatus.COMPLETED
+        assert task.completed_at is None
+        assert task.work_sessions == []
+
+    def test_total_worked_seconds_defaults_to_zero(self) -> None:
+        assert Task(id=1, title="タスク").total_worked_seconds == 0
+
+    def test_total_worked_seconds_sums_sessions(self) -> None:
+        started = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+        task = Task(
+            id=1,
+            title="タスク",
+            work_sessions=[
+                WorkSession(started_at=started, ended_at=started, seconds=1200),
+                WorkSession(started_at=started, ended_at=started, seconds=600, source="manual"),
+            ],
+        )
+        assert task.total_worked_seconds == 1800
+
+    def test_total_worked_seconds_is_not_persisted(self) -> None:
+        """計算値をシリアライズすると二重の真実になるため出さない。"""
+        assert "total_worked_seconds" not in Task(id=1, title="タスク").model_dump()
 
     def test_create_full(self) -> None:
         now = datetime.now(timezone.utc)

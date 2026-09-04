@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from task_cli.models.task import GlobalConfig, Priority, ProjectEntry, Task, TaskStatus
+from task_cli.models.time import WorkSession
 from task_cli.storage.file_storage import FileStorage
 from task_cli.storage.global_config_storage import GlobalConfigStorage
 
@@ -31,6 +32,65 @@ class TestFileStorage:
         assert loaded[0].title == "タスク1"
         assert loaded[1].status == TaskStatus.IN_PROGRESS
         assert loaded[1].priority == Priority.HIGH
+
+    def test_completed_at_roundtrip(self, tmp_path: Path) -> None:
+        storage = FileStorage(tmp_path / "tasks.yaml")
+        completed_at = datetime(2026, 7, 1, 12, 34, tzinfo=timezone.utc)
+        storage.save([make_task(1, status=TaskStatus.COMPLETED, completed_at=completed_at)])
+        assert storage.load()[0].completed_at == completed_at
+
+    def test_load_yaml_without_completed_at_key(self, tmp_path: Path) -> None:
+        """completed_at キーを持たない既存 YAML を直接書いて読めること。"""
+        path = tmp_path / "tasks.yaml"
+        path.write_text(
+            "- id: 1\n"
+            "  title: 旧データ\n"
+            "  description: ''\n"
+            "  status: completed\n"
+            "  priority: medium\n"
+            "  branch: null\n"
+            "  due_date: null\n"
+            "  created_at: '2026-06-01T00:00:00+00:00'\n"
+            "  updated_at: '2026-06-02T00:00:00+00:00'\n"
+            "  scheduled_date: null\n",
+            encoding="utf-8",
+        )
+        loaded = FileStorage(path).load()
+        assert len(loaded) == 1
+        assert loaded[0].completed_at is None
+
+    def test_work_sessions_roundtrip(self, tmp_path: Path) -> None:
+        """ネストしたリストが model_dump(mode="json") の往復で保たれること。"""
+        storage = FileStorage(tmp_path / "tasks.yaml")
+        started = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+        ended = datetime(2026, 7, 1, 9, 20, tzinfo=timezone.utc)
+        storage.save([
+            make_task(1, work_sessions=[
+                WorkSession(started_at=started, ended_at=ended, seconds=1200),
+                WorkSession(started_at=started, ended_at=ended, seconds=300, source="manual"),
+            ])
+        ])
+        loaded = storage.load()[0]
+        assert len(loaded.work_sessions) == 2
+        assert loaded.work_sessions[0].started_at == started
+        assert loaded.work_sessions[0].ended_at == ended
+        assert loaded.work_sessions[0].source == "timer"
+        assert loaded.work_sessions[1].source == "manual"
+        assert loaded.total_worked_seconds == 1500
+
+    def test_load_yaml_without_work_sessions_key(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.yaml"
+        path.write_text(
+            "- id: 1\n"
+            "  title: 旧データ\n"
+            "  status: open\n"
+            "  priority: medium\n"
+            "  created_at: '2026-06-01T00:00:00+00:00'\n"
+            "  updated_at: '2026-06-02T00:00:00+00:00'\n",
+            encoding="utf-8",
+        )
+        loaded = FileStorage(path).load()
+        assert loaded[0].work_sessions == []
 
     def test_save_creates_parent_directory(self, tmp_path: Path) -> None:
         nested = tmp_path / "projects" / "my-app" / "tasks.yaml"
