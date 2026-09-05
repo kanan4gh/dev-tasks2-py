@@ -3,6 +3,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from task_cli.duration import format_duration
 from task_cli.exceptions import AppError
 from task_cli.models.task import GlobalConfig, Priority, Task, TaskStatus
 
@@ -89,12 +90,25 @@ def render_task_detail(
         lines.append(f"[bold]Due[/bold]      {task.due_date}")
     lines.append(f"[bold]Created[/bold]  {task.created_at.strftime('%Y-%m-%d %H:%M')}")
     lines.append(f"[bold]Updated[/bold]  {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
+    if task.completed_at is not None:
+        lines.append(f"[bold]Done[/bold]     {task.completed_at.strftime('%Y-%m-%d %H:%M')}")
+    elif task.status is TaskStatus.COMPLETED:
+        # 完了日時を持たない移行前のタスク。updated_at で代用すると嘘が定着するので出さない。
+        lines.append("[bold]Done[/bold]     —（記録なし）")
+    if task.work_sessions:
+        total = format_duration(task.total_worked_seconds)
+        lines.append(f"[bold]Worked[/bold]   {total}（{len(task.work_sessions)} セッション）")
 
     console.print(Panel("\n".join(lines), title=f"Task {cid}", expand=False))
 
 
 def render_success(message: str) -> None:
     console.print(f"[green]{message}[/green]")
+
+
+def render_info(message: str) -> None:
+    """エラーではないが成功でもない通知（「変更はありませんでした」等）。"""
+    console.print(f"[dim]{message}[/dim]")
 
 
 def render_error(error: AppError) -> None:

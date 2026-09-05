@@ -92,6 +92,13 @@ class TaskStatus(str, Enum):
 | グローバル設定 | `~/.task-py/config.yaml` | YAML オブジェクト |
 | タスクデータ（プロジェクト） | `~/.task-py/projects/<name>/tasks.yaml` | YAML 配列 |
 | タスクデータ（Inbox） | `~/.task-py/inbox/tasks.yaml` | YAML 配列 |
+| ルーティーン定義 | `~/.task-py/daily/routines.yaml` | YAML 配列 |
+| 日別達成ログ（直近30日） | `~/.task-py/daily/log.yaml` | YAML 配列 |
+| 実行中タイマー | `~/.task-py/timer.yaml` | YAML オブジェクト |
+
+作業時間の実績（作業セッション）は独立したファイルを持たず、`Task.work_sessions` として `tasks.yaml` に内包する。タスク ID はストレージローカルであり `move` のたびに採番し直されるため、外部ファイルに `(project, task_id)` で持つと move / プロジェクト改名 / 削除のすべてに整合処理が必要になる。タスク自身に持たせればその義務がなくなる。
+
+**プロセス間で共有される状態**: `timer.yaml` は「今どのタイマーが動いているか」というプロジェクト横断の唯一の答えを保持する。残り時間・経過時間は保存された開始時刻から都度導出し、カウントダウンの値を変数として持たない。この設計により、CLI・MCP サーバー・（将来の）ローカル Web GUI がそれぞれ別プロセスであっても同じ状態を読める。プロセスの生死はタイマーの有効性の判定に使わない（PID は再利用されるため信用できない）。
 
 ※ TypeScript版は JSON だが、Python版は YAML を採用（pyyaml が標準的なため）。
 

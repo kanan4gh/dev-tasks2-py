@@ -51,6 +51,8 @@ task-py show 1
 ### タスクの編集
 
 ```bash
+task-py edit 1                       # $EDITOR で説明を編集（対話端末のみ）
+task-py edit 1 -e                    # 他のオプションと併用してエディタを開く
 task-py edit 1 --title "新しいタイトル"
 task-py edit 1 -d "説明文" -p high
 task-py edit 1 --due 2026-12-31
@@ -58,6 +60,14 @@ task-py edit 1 --due-clear           # 期限を削除
 task-py edit 1 --scheduled 2026-07-01  # 解禁日を設定（それ以降に start できる）
 task-py edit 1 --scheduled-clear       # 解禁日を削除
 ```
+
+オプションを付けずに実行すると `$EDITOR` が開き、改行を含む長い説明を書けます。VS Code を使う場合は `--wait` が必須です。
+
+```bash
+export EDITOR="code --wait"
+```
+
+`VISUAL` → `EDITOR` の順に参照します。保存せずに閉じた場合・内容を元に戻した場合はどちらも「変更なし」として終了します。非対話環境（CI・パイプ）ではエディタを開かず、従来どおりオプションの指定を求めるエラーになります。
 
 ### 解禁日の設定
 
@@ -120,13 +130,24 @@ task-py daily reset                 # 今日をすべて pending に戻す
 task-py onboard  # アクティブプロジェクト・ルーティーン・優先タスクを要約表示
 ```
 
-### タイマー
+### タイマーと作業時間
 
 ```bash
-task-py time start 25m  # 25分タイマー（完了時にベル通知）
-task-py time start 1h   # 1時間タイマー
-task-py time start 30s  # 30秒タイマー
+task-py time start 25m            # 25分タイマー（完了時にベル通知）
+task-py time start 1h             # 1時間タイマー
+task-py time start 25m --task 1   # タスク1に作業時間を記録する
+task-py time start --task 1       # 時間を省略するとストップウォッチ
+task-py time start 25m --detach   # 残り時間を表示せず、状態だけ記録して抜ける
+
+task-py time status               # 実行中タイマーの残り時間
+task-py time stop                 # 終了して作業時間を記録
+task-py time cancel               # 破棄（記録しない）
+task-py time log 1 25m            # 作業時間を手動で記録
 ```
+
+タイマーの状態は `~/.task-py/timer.yaml` に保存され、**別のシェルや MCP サーバーからも同じ状態が見えます**。残り時間は開始時刻から都度計算するので、シェルを閉じても・端末がスリープしても狂いません。実行中タイマーは同時に1本で、二重に開始しようとするとエラーになります（`--force` で置き換え可能。置き換えられた側の作業時間は記録されます）。
+
+`--task` を付けたタイマーを `stop` すると、経過分がそのタスクの作業時間として記録されます。カウントダウンの場合、記録は設定時間が上限です（掛けっぱなしにした時間を作業時間にしないため）。合計は `task-py show <id>` で確認できます。
 
 ### インタラクティブシェル
 
@@ -160,10 +181,13 @@ task [myapp]> exit
 ├── projects/
 │   └── <name>/
 │       └── tasks.yaml             # プロジェクト別タスク
-└── daily/
-    ├── routines.yaml              # ルーティーン定義
-    └── log.yaml                   # 日別達成ログ（直近30日）
+├── daily/
+│   ├── routines.yaml              # ルーティーン定義
+│   └── log.yaml                   # 日別達成ログ（直近30日）
+└── timer.yaml                     # 実行中タイマー（プロセス間で共有）
 ```
+
+作業時間の実績は独立したファイルではなく、各タスクの `work_sessions` として `tasks.yaml` に保存されます（`task-py move` でタスクを移動しても一緒に移ります）。
 
 ## アンインストール
 
@@ -241,6 +265,11 @@ uv tool install git+https://github.com/kanan4gh/dev-tasks2-py.git
 | `resume_routine` | ルーティーンを再開 |
 | `delete_routine` | ルーティーン削除 |
 | `get_daily_stats` | 直近7日の達成率 |
+| `start_timer` | タイマー開始（常にバックグラウンド） |
+| `get_timer_status` | 実行中タイマーの状態取得 |
+| `stop_timer` | タイマー終了と作業時間の記録 |
+| `cancel_timer` | タイマー破棄（記録しない） |
+| `log_work_time` | 作業時間の手動記録 |
 | `get_mcp_stats` | ツール別呼び出し回数の統計 |
 
 CLI（`task-py`）と MCP サーバーは同じ `~/.task-py/` のデータを共有します。

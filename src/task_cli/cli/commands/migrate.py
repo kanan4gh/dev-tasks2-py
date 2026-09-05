@@ -48,6 +48,8 @@ def _convert_tasks(raw: list[dict[str, Any]]) -> list[Task]:
             scheduled_date=t.get("scheduledDate"),
             created_at=t["createdAt"],
             updated_at=t["updatedAt"],
+            # TypeScript 版に completedAt は無いが、あれば拾う（無ければ None のまま）
+            completed_at=t.get("completedAt"),
         ))
     return tasks
 

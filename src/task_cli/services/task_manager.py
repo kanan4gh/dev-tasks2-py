@@ -4,6 +4,7 @@ from typing import Literal
 
 from task_cli.exceptions import AppError
 from task_cli.models.task import Priority, Task, TaskStatus
+from task_cli.models.time import WorkSession
 from task_cli.storage.file_storage import FileStorage
 
 _PRIORITY_ORDER = {Priority.HIGH: 0, Priority.MEDIUM: 1, Priority.LOW: 2}
@@ -79,6 +80,28 @@ class TaskManager:
             remedy="task list で有効なIDを確認してください。",
         )
 
+    def append_work_session(self, id: int, session: WorkSession) -> Task:
+        """作業セッションを追記する。
+
+        `update_task` を使わないのは意図的である。作業時間の記録はタスク内容の
+        編集ではないため、`updated_at` を動かしてはいけない（動かすと
+        `completed_at` を追加した理由と同じ問題を新しく作ることになる）。
+        """
+        tasks = self._storage.load()
+        for i, task in enumerate(tasks):
+            if task.id == id:
+                updated = task.model_copy(
+                    update={"work_sessions": [*task.work_sessions, session]}
+                )
+                tasks[i] = updated
+                self._storage.save(tasks)
+                return updated
+        raise AppError(
+            "タスクが見つかりません。",
+            cause=f"ID={id} のタスクは存在しません。",
+            remedy="task list で有効なIDを確認してください。",
+        )
+
     def delete_task(self, id: int) -> None:
         tasks = self._storage.load()
         for i, task in enumerate(tasks):
@@ -139,7 +162,7 @@ class TaskManager:
                     cause=f"scheduled_date ({task.scheduled_date}) が未来のため着手できません。",
                     remedy=f"解禁日 ({task.scheduled_date}) 以降に start を実行してください。",
                 )
-        return self.update_task(id, status=TaskStatus.IN_PROGRESS)
+        return self._apply_status_change(task, TaskStatus.IN_PROGRESS)
 
     def complete_task(self, id: int) -> Task:
         task = self.get_task(id)
@@ -149,7 +172,7 @@ class TaskManager:
                 cause=f"{task.status.value} のタスクは completed に変更できません。",
                 remedy="task start <id> でタスクを開始してから完了してください。",
             )
-        return self.update_task(id, status=TaskStatus.COMPLETED)
+        return self._apply_status_change(task, TaskStatus.COMPLETED)
 
     def archive_task(self, id: int) -> Task:
         task = self.get_task(id)
@@ -159,7 +182,25 @@ class TaskManager:
                 cause=f"{task.status.value} のタスクは archived に変更できません。",
                 remedy="in_progress のタスクは先に完了させてください。",
             )
-        return self.update_task(id, status=TaskStatus.ARCHIVED)
+        return self._apply_status_change(task, TaskStatus.ARCHIVED)
+
+    def _apply_status_change(self, task: Task, new_status: TaskStatus) -> Task:
+        """ステータス変更の唯一の絞り口。completed_at の出入りをここだけで決める。
+
+        completed へ入るときに記録し、completed から出るときにクリアする。
+        archived は「片付け」であって「完了の取り消し」ではないため、
+        completed → archived では completed_at を保持する。
+        """
+        updates: dict[str, object] = {"status": new_status}
+        was_completed = task.status is TaskStatus.COMPLETED
+        now_completed = new_status is TaskStatus.COMPLETED
+
+        if now_completed and not was_completed:
+            updates["completed_at"] = datetime.now(timezone.utc)
+        elif was_completed and new_status is not TaskStatus.ARCHIVED:
+            updates["completed_at"] = None
+
+        return self.update_task(task.id, **updates)
 
     def search_tasks(self, keyword: str) -> list[Task]:
         kw = keyword.lower()
