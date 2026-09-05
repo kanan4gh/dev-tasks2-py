@@ -1,796 +1,352 @@
 # 開発ガイドライン (Development Guidelines)
 
+## 本書の役割
+
+本書は、TaskCLIを開発するための環境準備、Pythonコーディング規約、テスト、品質保証、Git・PR・リリースの実務を定める。
+
+仕様とプロセスの正典は次の文書に置き、本書では日常作業に必要な入口だけを示す。
+
+- SDDプロセスと技術スタック: `AGENTS.md`
+- 作業計画・状態遷移・振り返り: `docs/procedures/steering.md`
+- アーキテクチャ: `docs/architecture.md`
+- ファイル配置と依存方向: `docs/repository-structure.md`
+- 外部自動化の利用境界: `docs/external-automation-policy.md`
+- 利用者向けのインストール・操作方法: `README.md`
+
+---
+
 ## 開発環境セットアップ
 
 ### 必要なツール
 
-| ツール | バージョン | インストール方法 |
-|--------|-----------|-----------------|
-| Node.js | v18以上（開発環境: v24.11.0） | devcontainer で自動セットアップ |
-| npm | 11.x | Node.js に同梱 |
-| Git | 2.20 以上 | OS 標準または `apt install git` |
-| Docker | 最新安定版 | Dev Container 利用時に必要 |
+| ツール | 要件 | 用途 |
+|---|---|---|
+| Python | 3.12以上 | アプリケーションと開発スクリプトの実行 |
+| uv | 安定版 | 依存関係、仮想環境、コマンド実行の管理 |
+| Git | 利用環境の安定版 | ブランチ・履歴管理 |
+| GitHub CLI | PR・Issue・Releaseを操作する場合 | `gh` コマンド |
+| Docker / VS Code Dev Containers | 任意 | 再現可能なコンテナ開発環境 |
+
+devcontainerは任意である。ローカルにPython 3.12とuvがあれば、コンテナを使わずに同じ品質ゲートを実行できる。
 
 ### セットアップ手順
 
 ```bash
-# 1. リポジトリのクローン
-git clone <リポジトリURL> dev-tasks2
-cd dev-tasks2
-
-# 2. Dev Container で開く（推奨）
-# VS Code で「Reopen in Container」を選択
-# → Node.js のインストール・npm install・Claude Code のインストールが自動実行される
-
-# 3. 手動セットアップの場合
-npm install            # 依存関係のインストール（husky も自動セットアップ）
-
-# 4. 動作確認
-npm run typecheck      # TypeScript 型チェック
-npm test               # テスト実行
-npm run build          # ビルド確認
+git clone https://github.com/kanan4gh/dev-tasks2-py.git
+cd dev-tasks2-py
 ```
 
-### npm スクリプト一覧
+ここで実行環境を選ぶ。
 
-| コマンド | 用途 |
-|---------|------|
-| `npm run build` | TypeScript をコンパイルして `dist/` に出力 |
-| `npm run dev` | ウォッチモードでビルド |
-| `npm run lint` | ESLint でコード検査 |
-| `npm run format` | Prettier でコード整形 |
-| `npm run typecheck` | 型チェックのみ（ビルドなし） |
-| `npm test` | テストを一度だけ実行 |
-| `npm run test:watch` | テストをウォッチモードで実行 |
-| `npm run test:coverage` | カバレッジレポートを生成 |
+- Dev Containerを使う場合: VS Codeで「Reopen in Container」を選ぶ
+- ローカル環境を使う場合: `python3 --version` と `uv --version` で要件を確認する
+
+選択した環境内で依存関係を同期し、CLIを確認する。
+
+```bash
+uv sync
+uv run task-py --help
+```
+
+Dev Containerでは `.devcontainer/postCreate.sh` がuvと開発ツールを準備する。
+
+`uv sync` は `pyproject.toml` と `uv.lock` に従って環境を同期する。依存関係を変更した場合は、両ファイルの差分を確認してコミットする。
 
 ---
 
-## コーディング規約
+## 日常の開発フロー
 
-### 命名規則
+1. 関連するGitHub Issueを確認し、なければ先に作成する
+2. `main` の最新状態から `feature/<task-name>` ブランチを作る
+3. `.steering/YYYYMMDD-<task-name>/` に要求・設計・タスクリストを記録する
+4. 関連文書と類似実装を読んでから変更する
+5. 完了した項目を直後に `tasklist.md` へ反映する
+6. 変更種別に応じた検証とレビューを行う
+7. tasklistを `complete` に遷移してから、明示対象のローカル品質ゲートを通す
+8. Conventional Commits形式でコミットし、フィーチャーブランチからPRを作成する
 
-#### 変数・関数
+機能実装コードを `main` に直接コミット・プッシュしない。計画、実装、検証、振り返りの詳細と `active / paused / complete` の遷移規則は `docs/procedures/steering.md` に従う。
 
-```typescript
-// ✅ 良い例
-const taskList = await taskManager.listTasks();
-function formatBranchName(taskId: number, title: string): string { }
-const isGitRepository = await gitService.isGitRepository();
+通常の応答終了は作業の中断ではない。意図的に中断・再開・完了する場合だけ、次のスクリプトを使う。
 
-// ❌ 悪い例
-const data = await tm.list();
-function fmt(id: number, t: string): string { }
-const flag = await gs.isGit();
-```
-
-**原則**:
-- 変数: `camelCase`、名詞または名詞句
-- 関数: `camelCase`、動詞で始める
-- 定数: `UPPER_SNAKE_CASE`
-- Boolean: `is`, `has`, `should`, `can` で始める
-
-#### クラス・インターフェース
-
-```typescript
-// クラス: PascalCase + 役割接尾辞
-class TaskManager { }
-class GitService { }
-class FileStorage { }
-class Renderer { }
-
-// インターフェース: PascalCase（I 接頭辞なし）
-interface Task { }
-interface Config { }
-interface TaskFilter { }
-
-// 型エイリアス: PascalCase
-type TaskStatus = 'open' | 'in_progress' | 'completed' | 'archived';
-type TaskPriority = 'high' | 'medium' | 'low';
-```
-
-#### ファイル・ディレクトリ
-
-```
-// クラスファイル: PascalCase
-TaskManager.ts / GitService.ts / FileStorage.ts
-
-// コマンドファイル: camelCase（コマンド名と一致）
-add.ts / list.ts / done.ts
-
-// ユーティリティ関数ファイル: camelCase
-slug.ts
-
-// テストファイル: tests/unit/<レイヤー>/[対象名].test.ts
-tests/unit/services/TaskManager.test.ts
-tests/unit/utils/slug.test.ts
+```bash
+uv run python3 scripts/steering_state.py pause --help
+uv run python3 scripts/steering_state.py resume --help
+uv run python3 scripts/steering_state.py complete --help
 ```
 
 ---
 
-### 型定義
+## Pythonコーディング規約
 
-**原則: `any` の使用禁止**
+### 命名
 
-```typescript
-// ✅ 良い例: 明示的な型を定義
-function loadTasks(): Task[] { }
-function saveConfig(config: Config): void { }
+| 対象 | 規則 | 例 |
+|---|---|---|
+| モジュール・関数・変数 | `snake_case` | `task_manager.py`, `list_tasks` |
+| クラス・列挙型 | `PascalCase` | `TaskManager`, `TaskStatus` |
+| 定数 | `UPPER_SNAKE_CASE` | `_PRIORITY_ORDER` |
+| 真偽値 | 意味が分かる述語 | `is_active`, `has_tasks`, `can_transition` |
+| テスト | `test_<期待する振る舞い>` | `test_missing_task_raises_app_error` |
 
-// ❌ 悪い例: any を使用
-function loadTasks(): any { }
-function saveConfig(config: any): void { }
+省略名よりドメイン用語を優先する。用語の意味は `docs/glossary.md`、ファイルの配置は `docs/repository-structure.md` に合わせる。
+
+### 型とデータモデル
+
+- 公開する関数・メソッドの引数と戻り値には型注釈を付ける
+- 「値がない」を許す場合は `T | None` を明示する
+- 固定した文字列集合は `Enum` または `Literal` で表す
+- 永続化するエンティティと入力検証にはpydantic `BaseModel` を使う
+- 内部処理だけの小さな値オブジェクトには `dataclass` を使ってよい
+- 型検査を避けるための無根拠な `Any` や `# type: ignore` を追加しない
+
+```python
+from dataclasses import dataclass
+from typing import Literal
+
+from task_cli.models.task import Priority, TaskStatus
+
+
+@dataclass
+class TaskFilter:
+    status: TaskStatus | list[TaskStatus] | None = None
+    priority: Priority | None = None
+    sort: Literal["id", "priority", "due_date", "created_at"] = "id"
 ```
 
-**インターフェース vs 型エイリアス**:
-- `interface`: 拡張可能なオブジェクト型（`Task`, `Config` 等）
-- `type`: ユニオン型・プリミティブ型（`TaskStatus`, `TaskPriority` 等）
+basedpyrightは `pyproject.toml` の設定を正とし、Python 3.12、`typeCheckingMode = "standard"` で実行する。
 
-**型は `src/types/index.ts` に集約する**:
-```typescript
-// ✅ 良い例: types/index.ts に集約して import
-import type { Task, TaskFilter } from '../types';
+### フォーマットとimport
 
-// ❌ 悪い例: 各ファイルで重複定義
-// services/TaskManager.ts で独自に type Task = { ... } を定義
+- 行の最大長は100文字とする
+- インデントはスペース4つとする
+- importは標準ライブラリ、外部ライブラリ、プロジェクト内の順に分ける
+- 未使用import、未定義名、構文上の問題はruffで検出する
+- 自動整形だけを前提にせず、既存ファイルの書式へ合わせる
+
+ruffの有効ルールと対象Pythonバージョンは `pyproject.toml` を正とする。現設定は行長違反をlint対象に含めないため、100文字以内かは差分レビューでも確認する。
+
+### 関数と責務
+
+- 1つの関数・メソッドには1つの主要な責務を持たせる
+- CLIとMCPは入力変換と出力整形に集中し、ドメイン判断をusecaseまたはserviceへ委譲する
+- 通常のタスク・設定・日次・タイマーYAMLの読み書きと復元方針はstorageへ閉じ込める
+- 移行、全体リセット、観測ログ、プロジェクトディレクトリのライフサイクルなど通常永続化と異なる境界処理は、責務と例外理由が明確な専用モジュールへ置く
+- 複数のserviceやstorageを調整する処理はusecaseへ置く
+- 共有ドメイン層の外部状態依存は、原則としてコンストラクタや引数で渡し、テストで差し替えられるようにする。現状の `ProjectService` にあるディレクトリ操作は境界処理の例外であり、再利用や独立テストが必要になった時点でstorageへの抽出を検討する
+- 同じ分岐が複数の入口に現れたら、共有層へ集約できないか検討する
+
+```python
+from task_cli.exceptions import AppError
+from task_cli.models.task import Task
+from task_cli.storage.file_storage import FileStorage
+
+
+class TaskManager:
+    def __init__(self, storage: FileStorage) -> None:
+        self._storage = storage
+
+    def get_task(self, task_id: int) -> Task:
+        for task in self._storage.load():
+            if task.id == task_id:
+                return task
+        raise AppError(
+            "タスクが見つかりません。",
+            cause=f"ID={task_id} のタスクは存在しません。",
+            remedy="task list で有効なIDを確認してください。",
+        )
 ```
-
----
-
-### コードフォーマット
-
-**フォーマット設定**（`.prettierrc` で管理）:
-- **インデント**: 2 スペース
-- **行の最大長**: 100 文字
-- **セミコロン**: あり
-- **クォート**: シングルクォート
-
-フォーマットは Prettier に任せる。コミット前に `lint-staged` が自動実行する。設定を変更する場合は `.prettierrc` を編集し、チームで合意を取ること。
-
----
-
-### 関数設計
-
-**単一責務の原則**（1 関数 = 1 つの処理）:
-
-```typescript
-// ✅ 良い例: 責務を分離
-function validateTaskTitle(title: string): void {
-  if (!title || title.length === 0) {
-    throw new AppError('タイトルは必須です', 'タイトルが空です', '1文字以上入力してください');
-  }
-  if (title.length > 200) {
-    throw new AppError('タイトルが長すぎます', `${title.length}文字が入力されました`, '200文字以内で入力してください');
-  }
-}
-
-function createTask(input: CreateTaskInput): Task {
-  validateTaskTitle(input.title);  // バリデーションは委譲
-  return { id: this.nextId(), ...input, status: 'open', createdAt: new Date().toISOString() };
-}
-
-// ❌ 悪い例: 1 関数に複数の責務
-function createTask(input: CreateTaskInput): Task {
-  if (!input.title) throw new Error('invalid');  // バリデーションと生成が混在
-  const id = tasks.reduce((max, t) => Math.max(max, t.id), 0) + 1;
-  const task = { id, ...input };
-  fs.writeFileSync('.task/tasks.json', JSON.stringify(tasks));  // 永続化まで担当
-  return task;
-}
-```
-
-**関数の長さの目安**:
-- 20 行以内: 推奨
-- 50 行以内: 許容範囲
-- 50 行超: リファクタリングを検討
-
-**パラメータが 4 つ以上になる場合はオブジェクト化する**:
-```typescript
-// ✅ 良い例
-interface CreateTaskInput {
-  title: string;
-  description?: string;
-  priority?: TaskPriority;
-  dueDate?: string;
-}
-function createTask(input: CreateTaskInput): Task { }
-
-// ❌ 悪い例
-function createTask(title: string, description: string, priority: string, dueDate: string): Task { }
-```
-
----
 
 ### エラーハンドリング
 
-**プロジェクト共通の `AppError` クラスを使用する**（`src/types/index.ts` 定義）:
+利用者が対処できるエラーは `task_cli.exceptions.AppError` で表し、次の3要素を渡す。
 
-```typescript
-class AppError extends Error {
-  constructor(
-    message: string,           // エラー概要
-    public readonly cause: string,   // 原因
-    public readonly remedy: string   // 対処法
-  ) {
-    super(message);
-  }
-}
-```
+- `message`: 何が失敗したか
+- `cause`: なぜ失敗したか
+- `remedy`: 利用者が次に何をすればよいか
 
-**表示フォーマット（Renderer が担当）**:
-```
-[Error] <message>
-  原因: <cause>
-  対処: <remedy>
-```
+予期しない例外を握りつぶさない。復旧可能な境界で別の例外を捕捉する場合も、元の原因を失わない説明または例外チェーンを残す。CLI固有の終了コードと表示はCLIレイヤー、MCP向けの変換はMCPレイヤーで扱う。
 
-**エラーハンドリングの原則**:
+### コメントとdocstring
 
-```typescript
-// ✅ 良い例: 予期されるエラーは AppError でラップ
-function getTask(id: number): Task {
-  const task = tasks.find(t => t.id === id);
-  if (!task) {
-    throw new AppError(
-      'タスクが見つかりません',
-      `ID=${id} のタスクは存在しません`,
-      'task list で有効な ID を確認してください'
-    );
-  }
-  return task;
-}
-
-// ✅ 良い例: 予期しないエラーは上位に伝播
-async function push(branch: string): Promise<void> {
-  try {
-    await git.push('origin', branch);
-  } catch (error) {
-    throw new AppError(
-      'プッシュに失敗しました',
-      error instanceof Error ? error.message : String(error),
-      'git status を確認し、認証情報を見直してください'
-    );
-  }
-}
-
-// ❌ 悪い例: エラーを無視する
-function getTask(id: number): Task | null {
-  try {
-    return tasks.find(t => t.id === id) ?? null;
-  } catch {
-    return null;  // エラー情報が消える
-  }
-}
-```
-
----
-
-### 非同期処理
-
-`async/await` を使用し、Promise チェーンは使わない:
-
-```typescript
-// ✅ 良い例
-async function syncWithGitHub(): Promise<SyncResult> {
-  const issues = await githubService.fetchIssues();
-  const localTasks = fileStorage.load();
-  const result = await applyDiff(issues, localTasks);
-  fileStorage.save(result.updatedTasks);
-  return result.summary;
-}
-
-// ❌ 悪い例: Promise チェーン
-function syncWithGitHub(): Promise<SyncResult> {
-  return githubService.fetchIssues()
-    .then(issues => applyDiff(issues, fileStorage.load()))
-    .then(result => { fileStorage.save(result.updatedTasks); return result.summary; });
-}
-```
-
-**並列実行には `Promise.all` を使用する**:
-
-```typescript
-// ✅ 良い例: 並列実行
-const [tasks, config] = await Promise.all([fileStorage.load(), configStorage.load()]);
-
-// ✅ 許容: コールバック API の Promise 化（promisify の代替）
-function readFileAsync(path: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    fs.readFile(path, 'utf-8', (err, data) => (err ? reject(err) : resolve(data)));
-  });
-}
-```
-
----
-
-### コメント規約
-
-**「なぜそうするか」を書く。「何をしているか」はコードから読める**:
-
-```typescript
-// ✅ 良い例: 理由を説明
-// 書き込み前にバックアップを作成し、失敗時に自動復元できるようにする
-fs.copyFileSync(tasksPath, backupPath);
-
-// ✅ 良い例: 複雑なロジックを説明
-// スラッグが空になる（タイトルが全角文字のみ等）場合は ID のみとする
-const slug = toSlug(title);
-return slug ? `feature/task-${id}-${slug}` : `feature/task-${id}`;
-
-// ❌ 悪い例: コードの繰り返し
-// バックアップパスにコピーする
-fs.copyFileSync(tasksPath, backupPath);
-```
-
-**公開クラス・メソッドには TSDoc コメントを付ける**:
-
-```typescript
-/**
- * タスクを開始状態に遷移させ、Git ブランチを自動作成する
- *
- * @param id - 対象タスクの ID
- * @returns 更新後の Task オブジェクト
- * @throws {AppError} タスクが存在しない場合
- * @throws {AppError} 遷移不可能なステータスの場合（archived など）
- */
-async startTask(id: number): Promise<Task> { }
-```
-
----
-
-## Git 運用ルール
-
-### ブランチ戦略
-
-**TaskCLI 開発用ブランチ構成**（シンプルな Git Flow）:
-
-```
-main（リリース済みの安定版）
-└── develop（次期リリース向けの統合ブランチ）
-    ├── feature/task-<id>-<slug>  ← task start で自動作成
-    ├── fix/<内容>
-    └── refactor/<対象>
-```
-
-**ルール**:
-- `main` と `develop` への直接コミットは禁止。PR 経由でマージする
-- 機能ブランチは `task start <id>` コマンドで自動作成する（手動作成も可）
-- feature → develop: squash merge を推奨
-- develop → main: merge commit を使用（リリース時）
-
----
-
-### コミットメッセージ規約
-
-**Conventional Commits 形式を採用**:
-
-```
-<type>(<scope>): <subject>
-
-<body>（任意）
-
-<footer>（任意）
-```
-
-**Type 一覧**:
-
-| type | 用途 |
-|------|------|
-| `feat` | 新機能 |
-| `fix` | バグ修正 |
-| `docs` | ドキュメント |
-| `style` | フォーマット変更（動作に影響なし） |
-| `refactor` | リファクタリング |
-| `test` | テスト追加・修正 |
-| `chore` | ビルド・依存関係・設定変更 |
-
-**TaskCLI の自動タグ付け**:
-
-`task start <id>` 実行後は `.git/hooks/prepare-commit-msg` フックが自動インストールされ、コミットメッセージ末尾に `[Task #<id>]` が自動付与される。
-
-```bash
-# 入力（開発者が書くメッセージ）
-feat(task): タスク一覧のソート機能を追加
-
-# コミット後の実際のメッセージ（フックが自動付与）
-feat(task): タスク一覧のソート機能を追加
-
-[Task #5]
-```
-
-**良いコミットメッセージの例**:
-
-```
-feat(cli): task list に --sort オプションを追加
-
---sort priority / --sort dueDate / --sort id に対応。
-デフォルトは id 昇順のまま変更なし。
-
-Closes #8
-[Task #5]
-```
-
----
-
-### プルリクエストの作成
-
-**PR テンプレート**（`.github/pull_request_template.md`）:
-
-```markdown
-## 変更の種類
-- [ ] 新機能 (feat)
-- [ ] バグ修正 (fix)
-- [ ] リファクタリング (refactor)
-- [ ] ドキュメント (docs)
-- [ ] その他 (chore)
-
-## 何を変更したか
-[簡潔な説明]
-
-## なぜ変更したか
-[背景・理由]
-
-## 変更内容
-- [変更点1]
-- [変更点2]
-
-## テスト
-- [ ] ユニットテスト追加・更新
-- [ ] 統合テスト追加・更新
-- [ ] 手動テスト実施
-- [ ] `npm test` がパスする
-- [ ] `npm run typecheck` がパスする
-
-## 関連タスク / Issue
-Closes #[番号]
-```
-
-**PR 作成前のセルフチェック**:
-- [ ] `npm test` がパスする
-- [ ] `npm run typecheck` がパスする
-- [ ] `npm run lint` にエラーがない
-- [ ] 変更ファイル数 10 以内・変更行数 300 行以内
-- [ ] 不要なコメントアウトコードがない
+- コードから明らかな「何をしているか」ではなく、判断理由や制約を書く
+- 後方互換、時刻、永続化、依存方向など、誤って単純化されやすい理由を優先する
+- docstringは公開API、複雑な振る舞い、呼び出し側が知るべき副作用に付ける
+- 一時的なTODOには追跡先のIssueを添える
+- コメントアウトしたコードやデバッグ出力を残さない
 
 ---
 
 ## テスト戦略
 
-### テストピラミッド
+### 基本方針
 
-```
-       /\
-      /E2E\        少（手動・テスト用 GitHub リポジトリ使用）
-     /------\
-    / 統合   \      中（実ファイルシステムで完全フローを検証）
-   /----------\
-  / ユニット   \    多（モックを活用して高速実行）
- /--------------\
-```
+- pytestを使用する
+- 正常系だけでなく、入力境界、状態遷移、欠損データ、I/O失敗を確認する
+- ファイルI/Oはpytestの `tmp_path` で隔離し、実際の利用者データへ触れない
+- 時刻、ホームディレクトリ、ネットワークなどの外部境界だけをfixtureやmonkeypatchで制御する
+- serviceとusecaseのドメイン判断は、可能な限り実装を通して検証する
+- バグ修正では、修正前に失敗する回帰テストを追加する
+- テスト件数や固定比率ではなく、要求とリスクに対する網羅性で判断する
 
-**目標比率**: ユニット 70% / 統合 20% / E2E 10%
+```python
+from pathlib import Path
 
----
+import pytest
 
-### ユニットテスト
+from task_cli.exceptions import AppError
+from task_cli.services.task_manager import TaskManager
+from task_cli.storage.file_storage import FileStorage
 
-**フレームワーク**: Vitest
-**カバレッジ目標**: 全体 80% 以上、`src/services/` は 90% 以上
 
-**カバレッジの自動強制**: `vitest.config.ts` に閾値を設定し、未達時にテストを失敗させる:
+def test_missing_task_raises_app_error(tmp_path: Path) -> None:
+    manager = TaskManager(FileStorage(tmp_path / "tasks.yaml"))
 
-```typescript
-coverage: {
-  thresholds: {
-    global: { lines: 80 },
-    'src/services/': { lines: 90 },
-  }
-}
+    with pytest.raises(AppError):
+        manager.get_task(999)
 ```
 
-**テスト構造（Given-When-Then パターン）**:
+### 配置
 
-```typescript
-describe('TaskManager', () => {
-  describe('startTask', () => {
-    it('open のタスクを in_progress に遷移できる', () => {
-      // Given: open のタスクが存在する
-      const storage = new MockFileStorage([
-        { id: 1, title: 'テスト', status: 'open', ... }
-      ]);
-      const manager = new TaskManager(storage);
+- プロダクト機能のテスト: `tests/test_<対象>.py`
+- ハーネス・規律・スクリプトのテスト: `tests/<分類>/test_<対象>.py`
 
-      // When: startTask を呼ぶ
-      const result = manager.startTask(1);
+詳細な分類は `docs/repository-structure.md` を参照する。
 
-      // Then: ステータスが in_progress になる
-      expect(result.status).toBe('in_progress');
-    });
-
-    it('archived のタスクは開始できず AppError をスローする', () => {
-      // Given: archived のタスクが存在する
-      const storage = new MockFileStorage([
-        { id: 2, title: 'アーカイブ済み', status: 'archived', ... }
-      ]);
-      const manager = new TaskManager(storage);
-
-      // When/Then: startTask を呼ぶと AppError がスローされる
-      expect(() => manager.startTask(2)).toThrow(AppError);
-    });
-  });
-});
-```
-
-**モック方針**:
-- `FileStorage` / `ConfigStorage` は `vi.mock` でモック化
-- `simple-git` は `vi.mock` でモック化
-- GitHub `fetch` は `vi.stubGlobal('fetch', ...)` でモック化
-- ビジネスロジック（`TaskManager`, `GitService` 等）は実装を使用
-
-```typescript
-// モックの例
-const mockStorage = {
-  load: vi.fn(() => []),
-  save: vi.fn(),
-  ensureDirectory: vi.fn(),
-};
-```
-
----
-
-### 統合テスト
-
-実際の一時ディレクトリ（`os.tmpdir()`）でファイル I/O を含むフローを検証する:
-
-```typescript
-import { mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-
-describe('task-workflow', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(`${tmpdir()}/taskcli-test-`);
-    process.chdir(tmpDir);
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true });
-  });
-
-  it('add → start → done の一連フローが正常に動作する', () => {
-    const manager = new TaskManager(new FileStorage(tmpDir));
-
-    const task = manager.createTask({ title: 'テストタスク' });
-    expect(task.status).toBe('open');
-
-    const started = manager.startTask(task.id);
-    expect(started.status).toBe('in_progress');
-
-    const done = manager.completeTask(task.id);
-    expect(done.status).toBe('completed');
-  });
-});
-```
-
----
-
-### E2Eテスト（手動）
-
-以下のシナリオを手動で確認する:
-
-| シナリオ | 実行コマンド | 確認コマンド | 期待される結果 |
-|---------|------------|------------|--------------|
-| Git リポジトリありの環境で `task start` | `task start 1` | `git branch --show-current` | `feature/task-1-<slug>` が表示される |
-| Git リポジトリなしの環境で `task start` | `cd /tmp/no-git && task start 1` | 標準出力を目視確認 | `[Warning] Gitリポジトリが見つかりません。` が表示され終了コード 0 |
-| `git commit` 後（フックインストール済み） | `git commit -m "feat: テスト"` | `git log --oneline -1` | コミットメッセージ末尾に `[Task #<id>]` が付与されている |
-| `task done --pr` | `task done 1 --pr` | GitHub リポジトリの PR 一覧 | テスト用リポジトリに PR が正しく作成される |
-
----
-
-## コードレビュー基準
-
-### レビューのポイント
-
-**機能性**:
-- [ ] 機能設計書の受け入れ条件を満たしているか
-- [ ] ステータス遷移ルールが守られているか
-- [ ] エッジケース（ID 不存在・不正ステータス遷移等）が考慮されているか
-
-**可読性**:
-- [ ] 命名がガイドラインに沿っているか
-- [ ] 複雑なロジックにコメントがあるか
-- [ ] 関数が単一責務を持っているか
-
-**レイヤー規約**:
-- [ ] CLI レイヤーがビジネスロジックを持っていないか
-- [ ] Storage レイヤーがサービスに依存していないか
-- [ ] 循環依存が発生していないか
-
-**セキュリティ**:
-- [ ] 機密情報（Token 等）がログに出力されていないか
-- [ ] 入力バリデーションが実装されているか
-- [ ] simple-git の API を通じて Git 操作しているか（シェル文字列結合なし）
-
-**テスト**:
-- [ ] ユニットテストが追加されているか
-- [ ] 異常系（AppError）のテストがあるか
-
-### レビューコメントの書き方
-
-優先度を明示して、建設的なフィードバックを行う:
-
-```markdown
-[必須] この実装だと archived → in_progress に遷移できてしまいます。
-       ステータス遷移ルール（functional-design.md 参照）に合わせて
-       遷移前チェックを追加してください。
-
-[推奨] `tasks.find()` を毎回呼ぶのではなく、`getTask()` を使うと
-       「タスクが見つからない」エラーハンドリングを一元化できます。
-
-[提案] この関数は 60 行を超えているので、バリデーション部分を
-       別関数に抽出するとテストしやすくなります。
-
-[質問] `.current-task` ファイルを削除するタイミングはここで良いですか？
-       `task archive` の場合も削除が必要では？
-```
-
----
-
-## 品質自動化（CI/CD）
-
-### Pre-commit フック（Husky + lint-staged）
-
-コミット前に自動で以下が実行される（プロジェクトに既設定）:
+### 個別検証コマンド
 
 ```bash
-# .husky/pre-commit
-npx lint-staged
-npm run typecheck
+uv run pytest
+uv run ruff check .
+uv run basedpyright
+uv run python3 scripts/steering_lint.py
+uv run python3 scripts/metered_automation_lint.py
 ```
 
-```json
-// package.json（lint-staged の設定）
-{
-  "lint-staged": {
-    "*.{ts,tsx}": [
-      "eslint --fix",
-      "prettier --write"
-    ]
-  }
-}
-```
-
-### GitHub Actions（必須）
-
-```yaml
-# .github/workflows/ci.yml
-name: CI
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-```
+対象を絞って反復する場合は、たとえば `uv run pytest tests/test_models.py` のように実行する。PR前は個別コマンドの寄せ集めではなく、次節の単一ゲートを使う。
 
 ---
 
-## バージョニング規則
+## 品質保証
 
-[Semantic Versioning 2.0.0](https://semver.org/lang/ja/) に従う。バージョン形式は `MAJOR.MINOR.PATCH`。
+### 必須のローカル品質ゲート
 
-### バージョンの上げ方
+PR前の品質保証の正は次のコマンドである。
 
-| 種別 | 条件 | 例 |
-|------|------|-----|
-| `MAJOR` | 後方互換性のない破壊的変更（コマンド廃止・データ形式の非互換変更など） | `1.0.0` → `2.0.0` |
-| `MINOR` | 後方互換性を保った新機能追加 | `1.0.0` → `1.1.0` |
-| `PATCH` | 後方互換性を保ったバグ修正・軽微な改善 | `1.0.0` → `1.0.1` |
-
-### 具体例
-
-```
-# PATCH: バグ修正
-task delete のエラーメッセージが表示されない → 1.0.0 → 1.0.1
-
-# MINOR: 新機能追加
-task list --all を追加             → 1.0.0 → 1.1.0
-task --version にアップデート通知  → 1.1.0 → 1.2.0
-
-# MAJOR: 破壊的変更
-~/.task/ のデータ形式を変更（移行ツールなし） → 1.x.x → 2.0.0
+```bash
+uv run python3 scripts/local_quality_gate.py --steering YYYYMMDD-<task-name>
 ```
 
-### リリース判断基準
+このゲートはpytest、ruff、basedpyright、steering lint、外部有料自動化lintを固定順で実行する。ネットワークやLLMを呼び出さない。対象steeringのタスク・振り返りを完了し、`complete` へ遷移した後に実行する。
 
-**判断主体**: プロジェクトオーナー。ステアリングの振り返り時に Claude が検討・提案し、オーナーが最終決定する。
+### GitHub Actions
 
-#### 通常フロー（MINOR / MAJOR）
+`.github/workflows/steering-lint.yml` は、利用権限と予算がある場合だけ明示的に起動する任意の手動ミラーである。PR、push、scheduleでは自動起動せず、その成功をPR完了の必須証拠にしない。
 
-ステアリングの振り返りフェーズで以下を評価し、リリース可否を判断する:
+### 対話型実機受け入れ
 
-| 評価項目 | 内容 |
+ハーネスの構成・権限・フックを変更した場合は `docs/procedures/harness-acceptance.md` に従う。利用許可済みのIDEまたは対話型CLIを使い、従量課金型LLMの非対話実行を標準受け入れに使わない。
+
+純ドキュメント変更は実行時の観察対象がないため、実挙動検証をスキップし、変更差分と文書品質をレビューする。
+
+---
+
+## Git・PR運用
+
+### ブランチ
+
+`main` を安定ブランチとし、作業ごとに最新の `main` からフィーチャーブランチを作る。
+
+```text
+main
+└── feature/<task-name>
+```
+
+- 機能、修正、ドキュメントのいずれもPR経由で `main` へ統合する
+- ブランチ名と `.steering/YYYYMMDD-<task-name>/` のタスク名を揃える
+- ユーザーの既存変更を無断で破棄・上書きしない
+- GitHub Actionsを自動実行しないプロジェクト方針を維持する
+
+### コミット
+
+Conventional Commits形式を使う。
+
+```text
+<type>(<scope>): <subject>
+
+<変更理由と重要な判断>
+
+Closes #<Issue番号>
+```
+
+主なtypeは `feat`、`fix`、`docs`、`refactor`、`test`、`chore` とする。1つのコミットには、レビュー可能な1つの目的を持たせる。
+
+### PR
+
+`.github/pull_request_template.md` に従い、次を記録する。
+
+- 変更概要・理由・内容
+- 実行したローカル品質ゲート、日時、結果
+- 対話型実機受け入れの要否と理由
+- 関連Issueを閉じる `Closes #<番号>`
+
+PRは `gh pr create` で作成できる。マージはプロジェクトオーナーが判断する。
+
+---
+
+## バージョニングとリリース
+
+[Semantic Versioning 2.0.0](https://semver.org/lang/ja/) に従う。
+
+| 種別 | 条件 |
 |---|---|
-| 全テスト通過 | `npm test` がパスしている |
-| ビルド成功 | `npm run build` が成功している |
-| 変更内容の記載準備 | リリースノートに記載すべき変更内容が整理されている |
+| MAJOR | 移行手段のないデータ形式変更、公開契約の非互換変更 |
+| MINOR | 後方互換な機能追加 |
+| PATCH | 後方互換なバグ修正・軽微な改善 |
 
-上記をすべて満たしており、かつ今回の変更がユーザーにとって価値のあるまとまりになっていればリリースを提案する。
+リリースする場合は次の順序で進める。
 
-#### 例外フロー（PATCH: 重大バグ修正）
+1. `pyproject.toml` の `version` を更新する
+2. ローカル品質ゲートを通し、PRで `main` へマージする
+3. 関連GitHub Issuesが閉じていることを確認し、未完了ならリリース前に閉じる
+4. マージ済みコミットからGitHub Releaseを作成する
 
-データ破損・コマンドのクラッシュなど重大なバグが発見された場合は、ステアリングの振り返りを待たず即時リリースを判断する。
+```bash
+gh issue close <issue-number>
+gh release create v<version> --title "v<version>" --notes "<変更内容>"
+```
 
-軽度なバグ（表示ずれ・エラーメッセージの誤りなど）は MINOR リリースのバッチに含めて対応する。
-
-#### リリース後のユーザーへの周知
-
-`task --version` 実行時に GitHub Releases API から最新バージョンを取得し、新しいバージョンが存在する場合はアップデート通知を自動表示する機能が実装済みである。リリース後の個別周知は不要で、ユーザーが次回コマンド実行時に自然に通知を受け取る。
-
-### リリース手順
-
-**マージ前:**
-
-1. README.md がリリース内容を反映していることを確認する
-2. `package.json` の `version` を更新する
-3. `src/cli/index.ts` の `.version()` を同じバージョンに更新する
-4. `main` ブランチにマージする
-
-**マージ後（必須）:**
-
-5. 関連する GitHub Issues がクローズされていることを確認する
-   - クローズされていない場合は `gh issue close <番号> --comment "<理由>"` でクローズする
-6. GitHub Releases でタグ（例: `v1.1.0`）を作成し、変更内容を記載する
-   - `gh release create v1.1.0 --title "v1.1.0" --notes "<変更内容>"` で作成する
+純ドキュメント更新は通常、単独リリースを行わず次回リリースへ含める。最終判断はステアリングの振り返りで記録する。
 
 ---
 
-## README.md の管理
+## README.mdの管理
 
-README.md はユーザーマニュアルとして位置づける（詳細は `repository-structure.md` を参照）。
+READMEは利用者向けマニュアルである。次の場合は同じ作業で更新する。
 
-### 更新が必要なタイミング
+- コマンドやオプションを追加・変更・削除した
+- インストール・アンインストール方法を変更した
+- 利用者が見るステータス遷移や保存形式を変更した
+- MCPツールの公開契約や設定方法を変更した
 
-| 変更内容 | README.md 更新 |
-|---|---|
-| コマンドの追加・削除 | **必須** |
-| オプションの追加・変更・削除 | **必須** |
-| インストール手順の変更 | **必須** |
-| ステータス遷移・データ構造の変更 | **必須** |
-| 内部実装の変更（ユーザー操作に影響しない） | 不要 |
-| バグ修正（コマンドの動作は変わらない） | 不要 |
-
-### 更新のタイミング
-
-ステアリングの実装フェーズ中に行う（リリース前に完了させること）。
-
-リリース手順の実行前に「README.md がリリース内容を反映しているか」を確認する。
+内部リファクタリング、開発専用手順、利用者の操作に影響しない修正では原則として更新しない。
 
 ---
 
-## 実装前チェックリスト
+## 実装前・PR前チェックリスト
 
-新機能・修正を実装する前に確認する:
+### 実装前
 
-- [ ] 関連する PRD の受け入れ条件を確認した
-- [ ] 機能設計書のシーケンス図・エラー仕様を確認した
-- [ ] 既存の類似実装を検索した（`grep` で重複を避ける）
-- [ ] レイヤーの依存ルールを把握した
+- [ ] `AGENTS.md` と使用ハーネスのアダプタを確認した
+- [ ] 関連Issueと永続ドキュメントを確認した
+- [ ] 既存の類似実装と配置規則を確認した
+- [ ] steeringの要求・設計・タスクリストが作業内容と一致している
 
-実装後・PR 作成前に確認する:
+### PR前
 
-- [ ] `npm run typecheck` がパスする
-- [ ] `npm test` がパスする（カバレッジ 80% 以上）
-- [ ] `npm run lint` にエラーがない
-- [ ] `AppError` を使ったエラーハンドリングが実装されている
-- [ ] ストレージ直接アクセスが CLI レイヤーにないこと
-- [ ] コメントアウトコード・デバッグ用 `console.log` が残っていないこと
+- [ ] tasklistの実装・検証・振り返りが完了している
+- [ ] 変更に対応するテストと文書を更新した
+- [ ] `AppError`、型注釈、レイヤー依存の規則を守っている
+- [ ] 不要なデバッグ出力、コメントアウト、秘密情報が残っていない
+- [ ] 対象steeringを明示したローカル品質ゲートが成功している
+- [ ] PR本文に検証結果、受け入れ判定、関連Issueを記載した
