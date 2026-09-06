@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>task-py</title>
+    <link rel="stylesheet" href="/app.css" />
+    <!--
+      vendor は UMD なのでグローバルに載る。バンドラもトランスパイラも使わない。
+      自前のコードは type="module" の ES モジュールとして読み、これらを
+      window から参照する。
+    -->
+    <script src="/vendor/react.production.min.js"></script>
+    <script src="/vendor/react-dom.production.min.js"></script>
+    <script src="/vendor/htm.umd.js"></script>
+  </head>
+  <body>
+    <div id="root">
+      <p class="loading">読み込み中…</p>
+    </div>
+    <script type="module" src="/js/main.js"></script>
+  </body>
+</html>

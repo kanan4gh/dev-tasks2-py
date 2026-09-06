@@ -288,7 +288,10 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
     { name = "typer" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -306,7 +309,10 @@ requires-dist = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
     { name = "typer" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata.requires-dev]
