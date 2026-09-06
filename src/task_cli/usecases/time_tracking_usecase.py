@@ -11,6 +11,7 @@ from task_cli.services.global_config_service import GlobalConfigService
 from task_cli.services.task_manager import TaskManager
 from task_cli.services.timer_service import TimerService
 from task_cli.storage.file_storage import FileStorage
+from task_cli.usecases.project_target import ACTIVE_PROJECT, ProjectTarget, ActiveProject
 from task_cli.usecases.task_crud_usecase import resolve_storage_path
 
 
@@ -65,6 +66,11 @@ class TimeTrackingUseCase:
     def _active_project(self) -> str | None:
         return self._global_config_service.get_active_project()
 
+    def _resolve(self, project: ProjectTarget) -> str | None:
+        if isinstance(project, ActiveProject):
+            return self._active_project()
+        return project
+
     # --- タイマー操作 ---
 
     def start_timer(
@@ -73,19 +79,25 @@ class TimeTrackingUseCase:
         task_id: int | None = None,
         force: bool = False,
         now: datetime | None = None,
+        project: ProjectTarget = ACTIVE_PROJECT,
     ) -> StartResult:
         """タイマーを開始する。`duration_seconds` が None ならストップウォッチ。
 
         `force` で実行中タイマーを置き換える場合、置き換えられる側は**破棄せず
         記録して**から差し替える。ユーザーから見て `stop` してから `start` した
         のと同じ結果になり、実測した作業時間が黙って消えない。
+
+        `project` を明示できるのは、対象タスクが属するプロジェクトを
+        `state.project` に焼き付ける必要があるためである。ここでアクティブ
+        プロジェクトを使うと、別プロジェクトのタスクに対してタイマーを張った
+        ときに、停止時の作業セッションが無関係なプロジェクトへ記録される。
         """
-        project = self._active_project()
+        target_project = self._resolve(project)
         task_title: str | None = None
         if task_id is not None:
             # 存在しないタスクにタイマーを紐づけると、停止時に行き場がなくなる。
             # 置き換えより先に検証して、失敗時に実行中タイマーを巻き添えにしない。
-            task_title = self._manager_for(project).get_task(task_id).title
+            task_title = self._manager_for(target_project).get_task(task_id).title
 
         replaced: StopResult | None = None
         if force and self._timer_service.get_active() is not None:
@@ -93,7 +105,7 @@ class TimeTrackingUseCase:
 
         state = TimerState(
             kind=TimerKind.COUNTDOWN if duration_seconds is not None else TimerKind.STOPWATCH,
-            project=project,
+            project=target_project,
             task_id=task_id,
             task_title=task_title,
             duration_seconds=duration_seconds,
@@ -120,6 +132,15 @@ class TimeTrackingUseCase:
         停止する。フォアグラウンド表示から呼ぶときに使い、別プロセスが張り直した
         タイマーを取り違えて止めてしまうのを防ぐ。
         """
+        # 読み取りから解除までをひとつの排他区間に入れる。分けると、2つの
+        # プロセスの stop が同じ TimerState を読んで両方が作業セッションを
+        # 追記し、同じ時間が二重に計上される。
+        with self._timer_service.transaction():
+            return self._stop_locked(now, expected_started_at)
+
+    def _stop_locked(
+        self, now: datetime | None, expected_started_at: datetime | None
+    ) -> StopResult:
         state = self._require_active()
         if expected_started_at is not None and state.started_at != expected_started_at:
             raise AppError(
@@ -162,8 +183,9 @@ class TimeTrackingUseCase:
 
     def cancel_timer(self) -> TimerState:
         """タイマーを破棄する。作業セッションは記録しない。"""
-        state = self._require_active()
-        self._timer_service.clear()
+        with self._timer_service.transaction():
+            state = self._require_active()
+            self._timer_service.clear()
         return state
 
     def clear_timer_for_task(
@@ -179,12 +201,13 @@ class TimeTrackingUseCase:
         `record` が False のときはセッションを記録せずに解除する（削除時は
         記録先ごと消えるため）。
         """
-        if not self._is_active_for(project, task_id):
-            return None
-        if not record:
-            self._timer_service.clear()
-            return None
-        return self.stop_timer(now=now).session
+        with self._timer_service.transaction():
+            if not self._is_active_for(project, task_id):
+                return None
+            if not record:
+                self._timer_service.clear()
+                return None
+            return self.stop_timer(now=now).session
 
     def retarget_timer_for_task(
         self,
@@ -199,6 +222,16 @@ class TimeTrackingUseCase:
         存在しない ID を指したままになる。放置すると停止時に記録が黙って落ち、
         さらに移動元で ID が再利用されると**別のタスクに記録される**。
         """
+        with self._timer_service.transaction():
+            return self._retarget_locked(from_project, from_task_id, to_project, to_task_id)
+
+    def _retarget_locked(
+        self,
+        from_project: str | None,
+        from_task_id: int,
+        to_project: str | None,
+        to_task_id: int,
+    ) -> bool:
         if not self._is_active_for(from_project, from_task_id):
             return False
         state = self._require_active()
@@ -221,7 +254,13 @@ class TimeTrackingUseCase:
 
     # --- 手動記録 ---
 
-    def log_work(self, task_id: int, seconds: int, now: datetime | None = None) -> Task:
+    def log_work(
+        self,
+        task_id: int,
+        seconds: int,
+        now: datetime | None = None,
+        project: ProjectTarget = ACTIVE_PROJECT,
+    ) -> Task:
         """作業時間を手動で記録する。"""
         if seconds <= 0:
             raise AppError(
@@ -236,7 +275,7 @@ class TimeTrackingUseCase:
             seconds=seconds,
             source="manual",
         )
-        return self._manager_for(self._active_project()).append_work_session(task_id, session)
+        return self._manager_for(self._resolve(project)).append_work_session(task_id, session)
 
     def _require_active(self) -> TimerState:
         state = self._timer_service.get_active()

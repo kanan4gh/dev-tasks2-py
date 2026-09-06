@@ -565,3 +565,121 @@ class TestResolveStoragePath:
     def test_inbox_when_no_project(self) -> None:
         path = resolve_storage_path(None)
         assert "inbox/tasks.yaml" in str(path)
+
+
+class TestExplicitProjectTarget:
+    """書き込み先をアクティブプロジェクトではなく呼び出し側が決められること。
+
+    GUI は全プロジェクトを一画面に出す面なので、画面上のタスクと実際に
+    書き換わるタスクが食い違ってはいけない。タスク ID はストレージ
+    ローカルであり、別プロジェクトにも同じ ID が存在しうる。
+    """
+
+    def test_add_task_targets_the_named_project(self, tmp_path: Path) -> None:
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="proj-a", project_names=["proj-a", "proj-b"]
+        )
+        uc.add_task("Bのタスク", project="proj-b")
+
+        assert [t.title for t in uc.list_tasks(project="proj-b")] == ["Bのタスク"]
+        assert uc.list_tasks(project="proj-a") == []
+
+    def test_add_task_targets_inbox_when_project_is_none(self, tmp_path: Path) -> None:
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="proj-a", project_names=["proj-a"]
+        )
+        uc.add_task("Inboxのタスク", project=None)
+
+        assert [t.title for t in uc.list_inbox_tasks()] == ["Inboxのタスク"]
+        assert uc.list_tasks(project="proj-a") == []
+
+    def test_operations_do_not_touch_the_same_id_in_the_active_project(
+        self, tmp_path: Path
+    ) -> None:
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="proj-a", project_names=["proj-a", "proj-b"]
+        )
+        uc.add_task("Aの1番")
+        uc.add_task("Bの1番", project="proj-b")
+
+        uc.start_task(1, project="proj-b")
+        uc.complete_task(1, project="proj-b")
+
+        assert uc.get_task(1, project="proj-a").status == TaskStatus.OPEN
+        assert uc.get_task(1, project="proj-b").status == TaskStatus.COMPLETED
+
+    def test_edit_and_delete_target_the_named_project(self, tmp_path: Path) -> None:
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="proj-a", project_names=["proj-a", "proj-b"]
+        )
+        uc.add_task("Aの1番")
+        uc.add_task("Bの1番", project="proj-b")
+
+        uc.edit_task(1, title="Bの1番（改）", project="proj-b")
+        assert uc.get_task(1, project="proj-b").title == "Bの1番（改）"
+        assert uc.get_task(1, project="proj-a").title == "Aの1番"
+
+        uc.delete_task(1, project="proj-b")
+        assert uc.list_tasks(project="proj-b") == []
+        assert len(uc.list_tasks(project="proj-a")) == 1
+
+    def test_search_and_schedule_target_the_named_project(self, tmp_path: Path) -> None:
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="proj-a", project_names=["proj-a", "proj-b"]
+        )
+        uc.add_task("Aの検索対象")
+        uc.add_task("Bの検索対象", project="proj-b")
+
+        found = uc.search_tasks("検索対象", project="proj-b")
+        assert [t.title for t in found] == ["Bの検索対象"]
+
+        uc.set_scheduled_date(1, "2026-12-31", project="proj-b")
+        assert uc.get_task(1, project="proj-b").scheduled_date == "2026-12-31"
+        assert uc.get_task(1, project="proj-a").scheduled_date is None
+
+    def test_move_reads_from_the_named_source_project(self, tmp_path: Path) -> None:
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="proj-a", project_names=["proj-a", "proj-b"]
+        )
+        uc.add_task("Aの1番")
+        uc.add_task("Bの1番", project="proj-b")
+
+        moved = uc.move_task(1, None, project="proj-b")
+
+        assert moved.title == "Bの1番"
+        assert uc.list_tasks(project="proj-b") == []
+        assert len(uc.list_tasks(project="proj-a")) == 1
+        assert [t.title for t in uc.list_inbox_tasks()] == ["Bの1番"]
+
+    def test_default_still_follows_the_active_project(self, tmp_path: Path) -> None:
+        """既定値は現行の挙動のまま（CLI・MCP の無改修を担保する）。"""
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="proj-a", project_names=["proj-a", "proj-b"]
+        )
+        uc.add_task("既定のタスク")
+
+        assert [t.title for t in uc.list_tasks()] == ["既定のタスク"]
+        assert uc.list_tasks(project="proj-b") == []
+
+
+class TestMoveDoesNotCreateStrayDirectories:
+    """存在しないタスクの move が空のプロジェクトディレクトリを残さないこと（段3 指摘6）。
+
+    ロックファイルを置くために `ensure_directory()` が要るが、それを検証より
+    前に無条件で行うと、失敗しただけで `config.yaml` に載らない見えない
+    ディレクトリが残る。
+    """
+
+    def test_moving_a_missing_task_leaves_no_directory(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        config_storage = GlobalConfigStorage(tmp_path / "config.yaml")
+        config_storage.save(GlobalConfig(active_project=None))
+        uc = TaskCrudUseCase(
+            GlobalConfigService(config_storage),
+            lambda path: FileStorage(home / path.parent.name / path.name),
+        )
+
+        with pytest.raises(AppError):
+            uc.move_task(999, "typo-project")
+
+        assert not (home / "typo-project").exists()

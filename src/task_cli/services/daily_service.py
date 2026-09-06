@@ -20,11 +20,14 @@ class DailyService:
         self._logs = log_storage or DailyLogStorage()
 
     def add_routine(self, title: str) -> Routine:
-        routines = self._routines.load()
-        next_id = max((r.id for r in routines), default=0) + 1
-        routine = Routine(id=next_id, title=title, created_at=datetime.now(timezone.utc))
-        routines.append(routine)
-        self._routines.save(routines)
+        # 採番（max(id) + 1）を含むため、load から save までを排他区間に入れる。
+        # `ProjectService.create_project()` と同じ形の欠陥を残さない。
+        with self._routines.transaction():
+            routines = self._routines.load()
+            next_id = max((r.id for r in routines), default=0) + 1
+            routine = Routine(id=next_id, title=title, created_at=datetime.now(timezone.utc))
+            routines.append(routine)
+            self._routines.save(routines)
         self._ensure_today_log()
         return routine
 
@@ -56,12 +59,15 @@ class DailyService:
     def mark_done(self, id: int) -> None:
         self._ensure_today_log()
         today = _today_str()
-        log = self._logs.load_today(today)
-        for entry in log.entries:
-            if entry.routine_id == id:
-                entry.status = "done"
-                self._logs.save(log)
-                return
+        # 読んだログ全体を書き戻すため、排他しないと別のルーティーンを同時に
+        # done にした側の記録が消える。
+        with self._logs.transaction():
+            log = self._logs.load_today(today)
+            for entry in log.entries:
+                if entry.routine_id == id:
+                    entry.status = "done"
+                    self._logs.save(log)
+                    return
         raise AppError(
             "ルーティーンが見つかりません。",
             cause=f"ID {id} のルーティーンは今日のログに存在しません。",
@@ -75,6 +81,10 @@ class DailyService:
         self._update_paused(id, False)
 
     def resume_all(self) -> int:
+        with self._routines.transaction():
+            return self._resume_all_locked()
+
+    def _resume_all_locked(self) -> int:
         routines = self._routines.load()
         count = sum(1 for r in routines if r.paused)
         for r in routines:
@@ -83,6 +93,10 @@ class DailyService:
         return count
 
     def delete(self, id: int) -> None:
+        with self._routines.transaction():
+            self._delete_locked(id)
+
+    def _delete_locked(self, id: int) -> None:
         routines = self._routines.load()
         if not any(r.id == id for r in routines):
             raise AppError(
@@ -110,26 +124,32 @@ class DailyService:
         return result
 
     def reset_today(self) -> None:
-        today = _today_str()
-        log = self._logs.load_today(today)
-        for entry in log.entries:
-            entry.status = "pending"
-        self._logs.save(log)
-
-    def _ensure_today_log(self) -> None:
-        today = _today_str()
-        log = self._logs.load_today(today)
-        routines = self._routines.load()
-        existing_ids = {e.routine_id for e in log.entries}
-        added = False
-        for r in routines:
-            if r.id not in existing_ids and not r.paused:
-                log.entries.append(DailyLogEntry(routine_id=r.id))
-                added = True
-        if added or not self._logs.load_today(today).entries:
+        with self._logs.transaction():
+            today = _today_str()
+            log = self._logs.load_today(today)
+            for entry in log.entries:
+                entry.status = "pending"
             self._logs.save(log)
 
+    def _ensure_today_log(self) -> None:
+        with self._logs.transaction():
+            today = _today_str()
+            log = self._logs.load_today(today)
+            routines = self._routines.load()
+            existing_ids = {e.routine_id for e in log.entries}
+            added = False
+            for r in routines:
+                if r.id not in existing_ids and not r.paused:
+                    log.entries.append(DailyLogEntry(routine_id=r.id))
+                    added = True
+            if added or not self._logs.load_today(today).entries:
+                self._logs.save(log)
+
     def _update_paused(self, id: int, paused: bool) -> None:
+        with self._routines.transaction():
+            self._update_paused_locked(id, paused)
+
+    def _update_paused_locked(self, id: int, paused: bool) -> None:
         routines = self._routines.load()
         for r in routines:
             if r.id == id:

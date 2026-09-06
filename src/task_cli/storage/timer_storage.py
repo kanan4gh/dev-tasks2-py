@@ -1,9 +1,12 @@
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
 
 from task_cli.models.time import TimerFile
+from task_cli.storage.atomic import locked, write_atomic
 
 _DEFAULT_PATH = Path("~/.task-py/timer.yaml")
 
@@ -26,6 +29,20 @@ class TimerStorage:
     def path(self) -> Path:
         return self._path
 
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """`load()` → 変更 → `save()` をひとまとまりの排他区間にする。
+
+        `TimerService.start()` は `get_active()` で確認してから `save()` する
+        check-then-act であり、`TimerFile` の全置換だから不可分性だけで足りる
+        というのは誤りだった。排他しないと、2プロセスの `time start` が
+        どちらも「実行中なし」と判定して後勝ちになり、先のタイマーの作業
+        時間が黙って消える。`stop` も同様に二重記録を作りうる。
+        """
+        self.ensure_directory()
+        with locked(self._path):
+            yield
+
     def load(self) -> TimerFile:
         if not self._path.exists():
             return TimerFile()
@@ -44,10 +61,12 @@ class TimerStorage:
             return TimerFile()
 
     def save(self, timer_file: TimerFile) -> None:
-        self.ensure_directory()
-        data = timer_file.model_dump(mode="json")
-        with self._path.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+        with self.transaction():
+            data = timer_file.model_dump(mode="json")
+            write_atomic(
+                self._path,
+                lambda f: yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False),
+            )
 
     def ensure_directory(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

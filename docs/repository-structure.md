@@ -46,6 +46,7 @@ dev-tasks2-py/
 │   │   │   └── timer_service.py
 │   │   ├── storage/
 │   │   │   ├── __init__.py
+│   │   │   ├── atomic.py
 │   │   │   ├── file_storage.py
 │   │   │   ├── global_config_storage.py
 │   │   │   ├── routine_storage.py
@@ -53,6 +54,7 @@ dev-tasks2-py/
 │   │   │   └── timer_storage.py
 │   │   └── usecases/
 │   │       ├── __init__.py
+│   │       ├── project_target.py
 │   │       ├── task_crud_usecase.py
 │   │       └── time_tracking_usecase.py
 │   └── task_mcp/                         # MCPサーバーの第2入口
@@ -169,11 +171,18 @@ serviceはmodel、必要なstorage、パッケージ直下の共有基盤モジ�
 
 | ファイル | 保存対象 |
 |---|---|
+| `atomic.py` | 保存対象を持たない。不可分な書き込みとファイルロックの共通機構 |
 | `file_storage.py` | Inbox・プロジェクト別の `tasks.yaml` |
 | `global_config_storage.py` | `config.yaml` |
 | `routine_storage.py` | `daily/routines.yaml` |
 | `daily_log_storage.py` | `daily/log.yaml` |
 | `timer_storage.py` | `timer.yaml` |
+
+`atomic.py` 以外の5クラスはいずれも `write_atomic()` で書き、`transaction()` を
+公開する。`transaction()` は `load()` → 変更 → `save()` を覆う排他区間である。
+storageは境界の**提供**だけを担い、どこを境界にするかはservice層が決める。ただし
+複数ストレージに跨る操作（`move`）だけは、それを調整するusecase層が
+`atomic.locked()` を直接使って1つの区間にまとめる。
 
 storageはmodel、PyYAML、Python標準ライブラリへ依存できる。service、usecase、CLI、MCPへは依存しない。
 
@@ -183,8 +192,14 @@ storageはmodel、PyYAML、Python標準ライブラリへ依存できる。servi
 
 | ファイル | 責務 |
 |---|---|
-| `task_crud_usecase.py` | アクティブプロジェクトのstorage解決とタスク操作、タイマー後始末 |
+| `project_target.py` | 操作対象プロジェクトの語彙（`ACTIVE_PROJECT` / `ProjectTarget`） |
+| `task_crud_usecase.py` | 対象プロジェクトのstorage解決とタスク操作、タイマー後始末 |
 | `time_tracking_usecase.py` | タイマーとタスクの接続、作業時間記録、移動時の追従 |
+
+操作対象のプロジェクトは呼び出し側が `project=` で明示できる。既定値の
+`ACTIVE_PROJECT` はグローバル設定のアクティブプロジェクトに追従し、CLIとMCPは
+これを使う。`None` は「未指定」ではなく **Inbox** を指すため、両者を型で区別
+している（`ProjectTarget = str | None | ActiveProject`）。
 
 usecaseはmodel、service、storage、共有基盤モジュールと別のusecaseへ依存できる。入口固有の表示やプロンプトは持たない。
 
