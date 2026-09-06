@@ -137,3 +137,58 @@ class TestRenameProject:
         svc.create_project("b")
         with pytest.raises(AppError):
             svc.rename_project("a", "b")
+
+
+class TestRenameProjectDirectoryConsistency:
+    """設定とデータディレクトリが食い違ったまま残らないこと（段3 指摘1）。
+
+    `remove_project()` はディレクトリを消さないため、削除済みプロジェクトの
+    ディレクトリが残っていると `rename` の移動先が既に存在する。設定を先に
+    保存してからディレクトリを動かす順序だと、ここで失敗したときに
+    「設定は new・データは old のまま」という戻せない状態になる。
+    """
+
+    def test_rename_fails_cleanly_when_target_directory_exists(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "home"
+        monkeypatch.setenv("HOME", str(home))
+        service = ProjectService(GlobalConfigStorage(tmp_path / "config.yaml"))
+        service.create_project("old")
+        service.create_project("new-name")
+        service.remove_project("new-name")
+        service.use_project("old")
+
+        # 削除済みプロジェクトのデータが残っている状況を作る
+        stale = home / ".task-py/projects/new-name"
+        stale.mkdir(parents=True)
+        (stale / "tasks.yaml").write_text("[]\n", encoding="utf-8")
+        old_dir = home / ".task-py/projects/old"
+        old_dir.mkdir(parents=True)
+        (old_dir / "tasks.yaml").write_text("[]\n", encoding="utf-8")
+
+        with pytest.raises(AppError):
+            service.rename_project("old", "new-name")
+
+        # 設定もディレクトリも動いていない
+        config = service.get_config()
+        assert [p.name for p in config.projects] == ["old"]
+        assert config.active_project == "old"
+        assert old_dir.exists()
+
+    def test_rename_moves_the_directory_and_updates_the_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "home"
+        monkeypatch.setenv("HOME", str(home))
+        service = ProjectService(GlobalConfigStorage(tmp_path / "config.yaml"))
+        service.create_project("old")
+        old_dir = home / ".task-py/projects/old"
+        old_dir.mkdir(parents=True)
+        (old_dir / "tasks.yaml").write_text("[]\n", encoding="utf-8")
+
+        service.rename_project("old", "renamed")
+
+        assert not old_dir.exists()
+        assert (home / ".task-py/projects/renamed/tasks.yaml").exists()
+        assert [p.name for p in service.get_config().projects] == ["renamed"]

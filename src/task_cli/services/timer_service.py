@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from task_cli.duration import format_clock
@@ -24,28 +26,46 @@ class TimerService:
     def __init__(self, storage: TimerStorage | None = None) -> None:
         self._storage = storage or TimerStorage()
 
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """タイマー状態の読み書きをひとまとまりの排他区間にする。
+
+        **ロックの取得順は timer.yaml → tasks.yaml とする。** `stop` は
+        タイマーを読んでから作業セッションをタスク側へ書くため、この向きに
+        入れ子になる。逆向き（タスク側のロックを握ったままタイマーを触る）は
+        作らないこと。`move_task` がタイマーの付け替えをタスクのロック区間の
+        **外**で行っているのはそのためである。
+        """
+        with self._storage.transaction():
+            yield
+
     def get_active(self) -> TimerState | None:
         return self._storage.load().active
 
     def start(self, state: TimerState, force: bool = False) -> TimerState:
-        current = self.get_active()
-        if current is not None and not force:
-            raise AppError(
-                "既にタイマーが実行中です。",
-                cause=self.describe(current),
-                remedy=(
-                    "task-py time stop で作業時間を記録して終了するか、"
-                    "task-py time cancel で破棄してください。"
-                    "置き換える場合は --force を付けてください。"
-                ),
-            )
-        self._storage.save(TimerFile(active=state))
+        # 「実行中か確認してから書く」check-then-act なので、確認と書き込みを
+        # ひとつの排他区間に入れる。分けると2プロセスの start がどちらも
+        # 「実行中なし」と判定し、後勝ちで先のタイマーの作業時間が黙って消える。
+        with self._storage.transaction():
+            current = self.get_active()
+            if current is not None and not force:
+                raise AppError(
+                    "既にタイマーが実行中です。",
+                    cause=self.describe(current),
+                    remedy=(
+                        "task-py time stop で作業時間を記録して終了するか、"
+                        "task-py time cancel で破棄してください。"
+                        "置き換える場合は --force を付けてください。"
+                    ),
+                )
+            self._storage.save(TimerFile(active=state))
         return state
 
     def clear(self) -> TimerState | None:
         """実行中タイマーを解除し、解除したものを返す。"""
-        current = self.get_active()
-        self._storage.save(TimerFile(active=None))
+        with self._storage.transaction():
+            current = self.get_active()
+            self._storage.save(TimerFile(active=None))
         return current
 
     @staticmethod

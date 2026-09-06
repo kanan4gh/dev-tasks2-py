@@ -191,3 +191,64 @@ class TestGlobalConfigStorage:
         storage = GlobalConfigStorage(path)
         storage.save(GlobalConfig())
         assert path.exists()
+
+
+class TestWriteFailureLeavesDataIntact:
+    """書き込み中に落ちても既存ファイルが 0 バイトにならないこと。
+
+    5ストレージすべてが `write_atomic` を通ることの回帰テスト。従来は
+    `open(path, "w")` が先にファイルを切り詰めていたため、ここで落ちると
+    `.bak` を持たない4ストレージはデータを丸ごと失っていた。
+    """
+
+    @staticmethod
+    def _cases(tmp_path: Path) -> list[tuple[str, object, object]]:
+        from task_cli.models.daily import DailyLog, Routine
+        from task_cli.models.time import TimerFile
+        from task_cli.storage.daily_log_storage import DailyLogStorage
+        from task_cli.storage.routine_storage import RoutineStorage
+        from task_cli.storage.timer_storage import TimerStorage
+
+        created = datetime(2026, 9, 6, tzinfo=timezone.utc)
+        return [
+            ("tasks.yaml", FileStorage(tmp_path / "tasks.yaml"), [make_task(1)]),
+            ("config.yaml", GlobalConfigStorage(tmp_path / "config.yaml"), GlobalConfig()),
+            (
+                "routines.yaml",
+                RoutineStorage(tmp_path / "routines.yaml"),
+                [Routine(id=1, title="朝会", created_at=created)],
+            ),
+            ("log.yaml", DailyLogStorage(tmp_path / "log.yaml"), [DailyLog(date="2026-09-06")]),
+            ("timer.yaml", TimerStorage(tmp_path / "timer.yaml"), TimerFile()),
+        ]
+
+    @staticmethod
+    def _save(storage: object, payload: object) -> None:
+        save_all = getattr(storage, "save_all", None)
+        if save_all is not None:
+            save_all(payload)
+            return
+        getattr(storage, "save")(payload)
+
+    def test_original_content_survives(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import yaml
+
+        for name, storage, payload in self._cases(tmp_path):
+            path = tmp_path / name
+            self._save(storage, payload)
+            before = path.read_bytes()
+            assert before, f"{name}: 前提となる初回書き込みが空だった"
+
+            def broken_dump(*args: object, **kwargs: object) -> None:
+                raise OSError("disk full")
+
+            monkeypatch.setattr(yaml, "safe_dump", broken_dump)
+            with pytest.raises(OSError):
+                self._save(storage, payload)
+            monkeypatch.undo()
+
+            assert path.read_bytes() == before, f"{name}: 書き込み失敗で内容が壊れた"
+            leftovers = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+            assert leftovers == [], f"{name}: 一時ファイルが残った: {leftovers}"

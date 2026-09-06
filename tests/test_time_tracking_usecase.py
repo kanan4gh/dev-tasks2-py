@@ -524,3 +524,95 @@ class TestMoveRetargetsTimer:
         assert active is not None
         assert active.project == "proj-a"
         assert active.task_id == 2
+
+
+class TestExplicitProjectTargetAndTimer:
+    """明示指定したプロジェクトのタイマーだけを畳むこと。
+
+    タスク ID はストレージローカルなので、別プロジェクトにも同じ ID が
+    存在しうる。照合にグローバルのアクティブプロジェクトを使うと、
+    無関係なタイマーを巻き添えで止めてしまう。
+    """
+
+    def test_completing_a_task_in_another_project_leaves_the_active_timer_alone(
+        self, tmp_path: Path
+    ) -> None:
+        env = make_env(tmp_path)
+        env.task_uc.add_task("Aの1番")  # proj-a #1
+        env.task_uc.add_task("Bの1番", project="proj-b")  # proj-b #1
+        # アクティブ（proj-a）の #1 に対してタイマーを張る
+        env.task_uc.start_task(1)
+        env.time_uc.start_timer(duration_seconds=1200, task_id=1, now=START)
+
+        env.task_uc.start_task(1, project="proj-b")
+        env.task_uc.complete_task(1, project="proj-b")
+
+        active = env.time_uc.status()
+        assert active is not None, "別プロジェクトの完了でタイマーが止められた"
+        assert active.project == "proj-a"
+        assert active.task_id == 1
+        assert env.task_uc.get_task(1, project="proj-b").total_worked_seconds == 0
+
+    def test_completing_the_timed_task_by_explicit_project_records_it(
+        self, tmp_path: Path
+    ) -> None:
+        env = make_env(tmp_path)
+        env.task_uc.add_task("Bの1番", project="proj-b")
+        env.task_uc.start_task(1, project="proj-b")
+        env.time_uc.start_timer(
+            duration_seconds=1200, task_id=1, now=START, project="proj-b"
+        )
+        # アクティブは proj-a のまま
+        assert env.config_storage.load().active_project == "proj-a"
+
+        task = env.task_uc.complete_task(1, project="proj-b")
+
+        assert env.time_uc.status() is None
+        assert task.total_worked_seconds > 0
+
+    def test_start_timer_stamps_the_named_project(self, tmp_path: Path) -> None:
+        env = make_env(tmp_path)
+        env.task_uc.add_task("Bの1番", project="proj-b")
+
+        state = env.time_uc.start_timer(
+            duration_seconds=1200, task_id=1, now=START, project="proj-b"
+        ).state
+
+        assert state.project == "proj-b"
+        assert state.task_title == "Bの1番"
+
+    def test_delete_by_explicit_project_clears_only_its_own_timer(self, tmp_path: Path) -> None:
+        env = make_env(tmp_path)
+        env.task_uc.add_task("Aの1番")
+        env.task_uc.add_task("Bの1番", project="proj-b")
+        env.time_uc.start_timer(duration_seconds=1200, task_id=1, now=START)
+
+        env.task_uc.delete_task(1, project="proj-b")
+
+        active = env.time_uc.status()
+        assert active is not None
+        assert active.project == "proj-a"
+
+    def test_move_from_an_explicit_source_retargets_the_timer(self, tmp_path: Path) -> None:
+        env = make_env(tmp_path)
+        env.task_uc.add_task("Bの1番", project="proj-b")
+        env.time_uc.start_timer(
+            duration_seconds=1200, task_id=1, now=START, project="proj-b"
+        )
+
+        moved = env.task_uc.move_task(1, "proj-a", project="proj-b")
+
+        active = env.time_uc.status()
+        assert active is not None
+        assert active.project == "proj-a"
+        assert active.task_id == moved.id
+
+    def test_log_work_targets_the_named_project(self, tmp_path: Path) -> None:
+        env = make_env(tmp_path)
+        env.task_uc.add_task("Aの1番")
+        env.task_uc.add_task("Bの1番", project="proj-b")
+
+        env.time_uc.log_work(1, 600, now=START, project="proj-b")
+
+        assert env.task_uc.get_task(1, project="proj-b").total_worked_seconds == 600
+        assert env.task_uc.get_task(1, project="proj-a").total_worked_seconds == 0

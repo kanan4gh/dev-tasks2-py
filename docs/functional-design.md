@@ -484,25 +484,31 @@ class GlobalConfigStorage {
 
 ---
 
-### FileStorage (`src/storage/FileStorage.ts`)
+### FileStorage (`src/task_cli/storage/file_storage.py`)
 
-**責務**: タスクデータ（`~/.task/projects/<name>/tasks.json` または `~/.task/inbox/tasks.json`）の読み書き・バックアップ
+**責務**: タスクデータ（`~/.task-py/projects/<name>/tasks.yaml` または `~/.task-py/inbox/tasks.yaml`）の読み書き・バックアップ・排他
 
-ストレージパスはコンストラクタで受け取り、GlobalConfigService が解決したアクティブプロジェクトに基づいて CLI 層から渡す。
+ストレージパスはコンストラクタで受け取り、`TaskCrudUseCase` が解決した対象プロジェクトに基づいて渡す。
 
-```typescript
-class FileStorage {
-  constructor(filePath: string) {}  // 例: "~/.task/projects/my-app/tasks.json"
-  load(): Task[];
-  save(tasks: Task[]): void;        // 書き込み前にバックアップを作成
-  ensureDirectory(): void;          // 親ディレクトリ（~/.task/projects/<name>/）を作成
-}
+```python
+class FileStorage:
+    def __init__(self, file_path: str | Path) -> None: ...
+    @property
+    def path(self) -> Path: ...
+    def transaction(self) -> Iterator[None]: ...  # load→変更→save を覆う排他区間
+    def load(self) -> list[Task]: ...
+    def save(self, tasks: list[Task]) -> None: ...
+    def ensure_directory(self) -> None: ...
 ```
 
 **書き込みフロー**:
-1. 現在の `tasks.json` を `tasks.json.bak` にコピー
-2. 新データを `tasks.json` に書き込み
-3. 成功したら `.bak` を削除（失敗したら `.bak` を復元）
+1. 排他区間を取る（`tasks.yaml.lock` への `flock`）
+2. 現在の `tasks.yaml` を `tasks.yaml.bak` にコピー
+3. 同じディレクトリの一時ファイルへ書き、`fsync` してから `os.replace()` で差し替える
+4. 親ディレクトリを `fsync` して差し替えを永続化する
+5. 成功したら `.bak` を削除
+
+読み手が観測するのは常に完全なファイルであり、書き込みが途中で失敗しても本体は変更されない。詳細は `docs/architecture.md` の「書き込み戦略」「排他制御」を参照。
 
 ---
 
@@ -896,7 +902,7 @@ class AppError extends Error {
 | ネットワークタイムアウト | 処理を中断 | `[Error] ネットワークタイムアウト（5秒）が発生しました。\n  原因: GitHub API に接続できません。\n  対処: インターネット接続を確認してください。` |
 | Inbox タスクへの `task start`（P1 機能の案内） | ステータスのみ更新、情報メッセージ表示 | `[Info] タスク #1 を開始しました。Git 連携（P1）を使用する場合は task move 1 <project> でプロジェクトに移動してください。` |
 | ファイル読み込み失敗 | 空データで初期化し継続 | `[Warning] タスクデータが見つかりません。新規作成します。` |
-| ファイル書き込み失敗 | .bak から復元し処理中断 | `[Error] タスクデータの保存に失敗しました。\n  原因: ディスクの空き容量が不足している可能性があります。\n  対処: ディスク容量を確認してください。` |
+| ファイル書き込み失敗 | 一時ファイルを破棄し本体は無変更のまま処理中断（`.bak` からの復元経路も残す） | `[Error] タスクデータの保存に失敗しました。\n  原因: ディスクの空き容量が不足している可能性があります。\n  対処: ディスク容量を確認してください。` |
 
 ---
 
@@ -905,7 +911,8 @@ class AppError extends Error {
 - **JSONファイルの全件読み込み**: 1 コマンド実行あたり 1 回のみ `load()` を呼ぶ。複数回 I/O しない
 - **検索**: `Array.prototype.filter` + 文字列 `includes` で十分（最大 10,000 件でも数ミリ秒以内）
 - **タイムアウト**: GitHub API 呼び出しには `AbortController` で 5 秒のタイムアウトを設定
-- **バックアップ**: 書き込み時のみ `.bak` を作成し、完了後即削除。常時 2 ファイル以上保持しない
+- **バックアップ**: `tasks.yaml` の書き込み時のみ `.bak` を作成し、完了後即削除。常時 2 ファイル以上保持しない
+- **排他とfsync**: 単一ストレージを操作するコマンドではロック取得1回・`fsync` 2回（本体と親ディレクトリ）。`move` と `time stop` は複数ファイルに跨るため複数回になる。実測で従来比 +0.35ms（中央値 7.18ms → 7.53ms）であり、ローカル操作 100ms 以内の要件に影響しない
 
 ---
 

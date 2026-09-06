@@ -28,16 +28,17 @@ class TaskManager:
         priority: Priority = Priority.MEDIUM,
         due_date: str | None = None,
     ) -> Task:
-        tasks = self._storage.load()
-        task = Task(
-            id=self._next_id(tasks),
-            title=title,
-            description=description,
-            priority=priority,
-            due_date=due_date,
-        )
-        tasks.append(task)
-        self._storage.save(tasks)
+        with self._storage.transaction():
+            tasks = self._storage.load()
+            task = Task(
+                id=self._next_id(tasks),
+                title=title,
+                description=description,
+                priority=priority,
+                due_date=due_date,
+            )
+            tasks.append(task)
+            self._storage.save(tasks)
         return task
 
     def list_tasks(self, filter: TaskFilter | None = None) -> list[Task]:
@@ -65,15 +66,16 @@ class TaskManager:
         )
 
     def update_task(self, id: int, **kwargs: object) -> Task:
-        tasks = self._storage.load()
-        for i, task in enumerate(tasks):
-            if task.id == id:
-                updated = task.model_copy(
-                    update={**kwargs, "updated_at": datetime.now(timezone.utc)}
-                )
-                tasks[i] = updated
-                self._storage.save(tasks)
-                return updated
+        with self._storage.transaction():
+            tasks = self._storage.load()
+            for i, task in enumerate(tasks):
+                if task.id == id:
+                    updated = task.model_copy(
+                        update={**kwargs, "updated_at": datetime.now(timezone.utc)}
+                    )
+                    tasks[i] = updated
+                    self._storage.save(tasks)
+                    return updated
         raise AppError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
@@ -87,15 +89,16 @@ class TaskManager:
         編集ではないため、`updated_at` を動かしてはいけない（動かすと
         `completed_at` を追加した理由と同じ問題を新しく作ることになる）。
         """
-        tasks = self._storage.load()
-        for i, task in enumerate(tasks):
-            if task.id == id:
-                updated = task.model_copy(
-                    update={"work_sessions": [*task.work_sessions, session]}
-                )
-                tasks[i] = updated
-                self._storage.save(tasks)
-                return updated
+        with self._storage.transaction():
+            tasks = self._storage.load()
+            for i, task in enumerate(tasks):
+                if task.id == id:
+                    updated = task.model_copy(
+                        update={"work_sessions": [*task.work_sessions, session]}
+                    )
+                    tasks[i] = updated
+                    self._storage.save(tasks)
+                    return updated
         raise AppError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
@@ -103,12 +106,13 @@ class TaskManager:
         )
 
     def delete_task(self, id: int) -> None:
-        tasks = self._storage.load()
-        for i, task in enumerate(tasks):
-            if task.id == id:
-                tasks.pop(i)
-                self._storage.save(tasks)
-                return
+        with self._storage.transaction():
+            tasks = self._storage.load()
+            for i, task in enumerate(tasks):
+                if task.id == id:
+                    tasks.pop(i)
+                    self._storage.save(tasks)
+                    return
         raise AppError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
