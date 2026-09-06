@@ -8,13 +8,16 @@ import yaml
 from task_cli.models.task import GlobalConfig
 from task_cli.storage.atomic import locked, write_atomic
 
-_TASK_DIR = Path("~/.task-py").expanduser()
-_CONFIG_PATH = _TASK_DIR / "config.yaml"
+_DEFAULT_PATH = Path("~/.task-py/config.yaml")
 
 
 class GlobalConfigStorage:
-    def __init__(self, config_path: str | Path = _CONFIG_PATH) -> None:
-        self._path = Path(config_path).expanduser()
+    def __init__(self, config_path: str | Path | None = None) -> None:
+        # `~` の展開はモジュールの読み込み時ではなく**インスタンスを作るとき**に
+        # 行う。読み込み時に固定すると、あとから HOME を差し替えても既定パスが
+        # 追随せず、テストが実ホームの config.yaml を読み書きしてしまう
+        # （他の4つのストレージクラスは元から呼び出し時に展開している）。
+        self._path = Path(config_path or _DEFAULT_PATH).expanduser()
 
     @property
     def path(self) -> Path:

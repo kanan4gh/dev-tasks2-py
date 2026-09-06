@@ -25,6 +25,7 @@ from task_cli.cli.commands.shell import shell
 from task_cli.cli.commands.time import time_app
 from task_cli.cli.commands.show import show
 from task_cli.cli.commands.start import start
+from task_cli.cli.commands.web import web
 
 GITHUB_REPO = "kanan4gh/dev-tasks2-py"
 
@@ -46,6 +47,7 @@ app.command("overview")(overview)
 app.command("migrate")(migrate)
 app.command("reset")(reset)
 app.command("shell")(shell)
+app.command("web")(web)
 app.add_typer(project_app, name="project")
 app.add_typer(daily_app, name="daily")
 app.add_typer(time_app, name="time")
