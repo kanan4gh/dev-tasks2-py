@@ -252,3 +252,29 @@ class TestWriteFailureLeavesDataIntact:
             assert path.read_bytes() == before, f"{name}: 書き込み失敗で内容が壊れた"
             leftovers = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
             assert leftovers == [], f"{name}: 一時ファイルが残った: {leftovers}"
+
+
+class TestDefaultPathsFollowHome:
+    """既定パスの `~` 展開が、モジュール読み込み時ではなくインスタンス生成時に
+    行われること。
+
+    ここが読み込み時に固定されていると、`monkeypatch.setenv("HOME", ...)` を
+    使うテストが**実ホームのデータを読み書きしてしまう**。実際に
+    `GlobalConfigStorage` だけがそうなっており、テストが実ホームの
+    `config.yaml` にプロジェクトを書き込む事故が起きた。
+    """
+
+    def test_global_config_storage(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        assert GlobalConfigStorage().path == tmp_path / ".task-py/config.yaml"
+
+    def test_other_storages(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from task_cli.storage.daily_log_storage import DailyLogStorage
+        from task_cli.storage.routine_storage import RoutineStorage
+        from task_cli.storage.timer_storage import TimerStorage
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        root = tmp_path / ".task-py"
+        assert RoutineStorage().path == root / "daily/routines.yaml"
+        assert DailyLogStorage().path == root / "daily/log.yaml"
+        assert TimerStorage().path == root / "timer.yaml"

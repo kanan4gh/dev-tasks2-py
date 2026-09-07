@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -25,6 +26,11 @@ class TimerService:
 
     def __init__(self, storage: TimerStorage | None = None) -> None:
         self._storage = storage or TimerStorage()
+
+    @property
+    def timer_path(self) -> Path:
+        """タイマー状態の位置。Web GUI が変更の監視対象を組み立てるのに使う。"""
+        return self._storage.path
 
     @contextmanager
     def transaction(self) -> Iterator[None]:

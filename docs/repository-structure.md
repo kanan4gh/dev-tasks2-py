@@ -57,11 +57,24 @@ dev-tasks2-py/
 │   │       ├── project_target.py
 │   │       ├── task_crud_usecase.py
 │   │       └── time_tracking_usecase.py
-│   └── task_mcp/                         # MCPサーバーの第2入口
+│   ├── task_mcp/                         # MCPサーバーの第2入口
+│   │   ├── __init__.py
+│   │   ├── __main__.py
+│   │   ├── server.py
+│   │   └── tracking.py
+│   └── task_web/                         # ローカル Web GUI の第3入口
 │       ├── __init__.py
 │       ├── __main__.py
-│       ├── server.py
-│       └── tracking.py
+│       ├── server.py                     # Starlette アプリの組み立てと uvicorn 起動
+│       ├── api.py                        # 読み取り専用の JSON エンドポイント
+│       ├── serializers.py                # モデル → dict（派生値の付与）
+│       ├── watcher.py                    # 監視対象の mtime からリビジョンを作る
+│       ├── events.py                     # SSE
+│       └── static/                       # 同梱した React + 自前 JS
+│           ├── index.html
+│           ├── app.css
+│           ├── vendor/                   # react / react-dom / htm（由来は README.md）
+│           └── js/
 ├── tests/
 │   ├── test_*.py                         # プロダクト機能のテスト
 │   ├── adapters/                         # ハーネス受け入れ契約
@@ -104,7 +117,7 @@ dev-tasks2-py/
 └── README.md                              # 利用者向けマニュアル
 ```
 
-`src/task_cli/` と `src/task_mcp/` はどちらも `pyproject.toml` のwheel対象である。コマンド入口はそれぞれ `task-py` と `task-mcp` として登録する。
+`src/task_cli/` と `src/task_mcp/` と `src/task_web/` はいずれも `pyproject.toml` のwheel対象である。コマンド入口はそれぞれ `task-py` / `task-mcp` / `task-web` として登録する（`task-py web` からも起動できる）。`packages` 指定は拡張子でフィルタしないため、`task_web/static/` の `.html` / `.css` / `.js` もそのまま同梱される（`tests/test_web_server.py::TestWheelContents` が実ビルドで検証する）。
 
 ---
 
@@ -138,6 +151,24 @@ dev-tasks2-py/
 | `tracking.py` | ツール呼び出しを `~/.task-py/mcp_calls.jsonl` へ記録・集計する |
 
 MCPはCLIコマンドや `renderer.py` を経由せず、共有層を直接呼ぶ第2の入口である。ただし、本番依存の組み立てには現状 `task_cli/cli/deps.py` を再利用している。この依存とCLI表示への依存を区別し、MCP固有の文字列変換を共有層へ逆流させない。
+
+### `src/task_web/` — Web入口
+
+**責務**: HTTPリクエストを共有層の呼び出しへ変換し、結果をJSONで返す。ブラウザ向けの静的ファイルを配信する。**読み取りのみ**。
+
+| ファイル | 責務 |
+|---|---|
+| `__main__.py` | uvicornでサーバーを起動する |
+| `server.py` | Starletteアプリの組み立て（ルーティング・`Host`検証・静的配信）と起動 |
+| `api.py` | 読み取り専用のJSONエンドポイント。`AppError` をHTTPへ写す |
+| `serializers.py` | pydanticモデル → dict。`model_dump()` に出ない派生値をここで足す |
+| `watcher.py` | 監視対象ファイルの mtime とサイズからリビジョン値を作る |
+| `events.py` | リビジョンの変化をSSEで流す |
+| `static/` | 同梱したReact・htmと自前のESモジュール。ビルド工程を持たない |
+
+MCPと同じく、CLIコマンドや `renderer.py` を経由せず共有層を直接呼ぶ入口である。本番依存の組み立てには `task_cli/cli/deps.py` を再利用する。
+
+**読み取り専用は2重に担保する**: ルーティングに `GET` しか登録しない（書き込みメソッドは405）ことに加え、**ディスクへ書く経路を呼ばない**（`DailyService.list_today()` は既定で今日のログを書き足すため `ensure=False` を渡す）。405を返すだけでは読み取り専用を名乗れない。
 
 ### `src/task_cli/models/` — データモデル
 
@@ -218,17 +249,18 @@ usecaseはmodel、service、storage、共有基盤モジュールと別のusecas
 
 ```text
 task-py (cli/main.py → cli/commands/) ──┐
-                                         ├──→ usecases/ ──→ services/ ──→ storage/
-task-mcp (task_mcp/server.py) ───────────┘          │             │             │
-       └──→ cli/deps.py（本番依存の組み立て）       └──────────→ models/ ←──────┘
+task-mcp (task_mcp/server.py) ──────────┤──→ usecases/ ──→ services/ ──→ storage/
+task-web (task_web/server.py) ──────────┤          │             │             │
+                                        │          └──────────→ models/ ←──────┘
+3入口すべて ────────────────────────────┴──→ cli/deps.py（本番依存の組み立て）
 
-両入口 ──→ service / storage / models / task_cli直下の共有基盤モジュール
+3入口 ──→ service / models / task_cli直下の共有基盤モジュール
 ```
 
 **許可する方向**:
 
-- CLI・MCP → usecase / service / model / 共有基盤モジュール
-- CLI・MCPのcomposition rootと単純表示用の読み取り → storage
+- CLI・MCP・Web → usecase / service / model / 共有基盤モジュール
+- CLI・MCPのcomposition rootと単純表示用の読み取り → storage（**Webは storage へ直接依存しない**。監視対象のパスは service のプロパティと、usecase 層の `resolve_storage_path()` 経由で取る）
 - usecase → service / storage / model / 共有基盤モジュール / 別usecase
 - service → storage / model / 共有基盤モジュール
 - storage → model / PyYAML / Python標準ライブラリ
@@ -237,13 +269,14 @@ task-mcp (task_mcp/server.py) ───────────┘          │ 
 
 **禁止する方向**:
 
-- model → service / storage / usecase / CLI / MCP
-- storage → service / usecase / CLI / MCP
-- service → usecase / CLI / MCP
-- usecase → CLI / MCP
-- MCP → CLIコマンド / renderer / editor / shell
+- model → service / storage / usecase / CLI / MCP / Web
+- storage → service / usecase / CLI / MCP / Web
+- service → usecase / CLI / MCP / Web
+- usecase → CLI / MCP / Web
+- MCP・Web → CLIコマンド / renderer / editor / shell
+- Web → storage（直接）
 
-`task_mcp/server.py → task_cli/cli/deps.py` は現行のcomposition root再利用であり、CLIプレゼンテーションへの依存ではない。新たな入口が増えて組み立ての共有範囲が広がる場合は、composition rootの配置を別作業で再検討する。
+`task_mcp/server.py` と `task_web/api.py` から `task_cli/cli/deps.py` を呼ぶのは現行のcomposition root再利用であり、CLIプレゼンテーションへの依存ではない。**入口が3つになった**ため、composition rootを `task_cli/cli/` の下に置き続けるかは近いうちに再検討する価値がある。
 
 ---
 
@@ -308,6 +341,8 @@ pytestの `tmp_path` などで外部状態を隔離し、利用者の `~/.task-p
 | CLI表示・入力補助 | `src/task_cli/cli/` | `renderer.py`, `editor.py` |
 | MCPツール | `src/task_mcp/server.py` | `server.py` 内の `@mcp.tool()` |
 | MCP観測補助 | `src/task_mcp/` | `tracking.py` |
+| Webエンドポイント | `src/task_web/api.py` | `api.py` 内の `Route(...)` |
+| ブラウザ向け静的ファイル | `src/task_web/static/` | `js/main.js` |
 | ドメインモデル | `src/task_cli/models/` | `time.py` |
 | ドメインサービス | `src/task_cli/services/` | `timer_service.py` |
 | 永続化 | `src/task_cli/storage/` | `timer_storage.py` |

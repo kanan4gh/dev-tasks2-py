@@ -150,6 +150,21 @@ class TaskCrudUseCase:
     def search_tasks(self, keyword: str, project: ProjectTarget = ACTIVE_PROJECT) -> list[Task]:
         return self._get_manager(project).search_tasks(keyword)
 
+    def search_all_projects(self, keyword: str) -> dict[str | None, list[Task]]:
+        """Inbox と全プロジェクトを横断して検索する。
+
+        `TaskManager.search_tasks` はプロジェクト単位なので、横断の走査は
+        `list_all_projects()` と同じくここに置く。呼び出し側（Web GUI）で
+        ループを書くと、同じ走査をもう1箇所持つことになる。
+        """
+        config = self._global_config_service.get_all()
+        result: dict[str | None, list[Task]] = {
+            None: self._get_manager(None).search_tasks(keyword)
+        }
+        for project in config.projects:
+            result[project.name] = self._get_manager(project.name).search_tasks(keyword)
+        return result
+
     def move_task(
         self, id: int, target_project: str | None, project: ProjectTarget = ACTIVE_PROJECT
     ) -> Task:

@@ -1,3 +1,4 @@
+from pathlib import Path
 from datetime import datetime, timezone
 
 from task_cli.exceptions import AppError
@@ -31,8 +32,17 @@ class DailyService:
         self._ensure_today_log()
         return routine
 
-    def list_today(self, include_paused: bool = False) -> list[tuple[Routine, str]]:
-        self._ensure_today_log()
+    def list_today(
+        self, include_paused: bool = False, *, ensure: bool = True
+    ) -> list[tuple[Routine, str]]:
+        """今日のルーティーンと状態を返す。
+
+        `ensure=False` にすると今日のログを書き足さない。**読み取りだけの
+        呼び出し元（Web GUI）のために要る。** ログに載っていないルーティーンは
+        下で `pending` として扱われるため、読むだけなら書き込む必要がない。
+        """
+        if ensure:
+            self._ensure_today_log()
         today = _today_str()
         routines = {r.id: r for r in self._routines.load()}
         log = self._logs.load_today(today)
@@ -55,6 +65,16 @@ class DailyService:
 
         result.sort(key=sort_key)
         return result
+
+    @property
+    def log_path(self) -> Path:
+        """日別ログの位置。Web GUI が変更の監視対象を組み立てるのに使う。"""
+        return self._logs.path
+
+    @property
+    def routines_path(self) -> Path:
+        """ルーティーン定義の位置。同上。"""
+        return self._routines.path
 
     def mark_done(self, id: int) -> None:
         self._ensure_today_log()
