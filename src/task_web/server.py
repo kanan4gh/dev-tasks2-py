@@ -70,17 +70,14 @@ def create_app(allowed_hosts: list[str] | None = None) -> Starlette:
     ルーティングには `GET` しか登録しない。「書き込まないよう気をつける」ので
     はなく、書き込みメソッドが 405 になることを機構で担保する。
     """
+    hosts = allowed_hosts if allowed_hosts is not None else ALLOWED_HOSTS
     routes = [
-        *api_routes(),
+        # 許可ホストは CSRF の `Origin` 検査にも使う（`Host` 検証とは別の問題）。
+        *api_routes(hosts),
         # 静的配信は最後にマウントする。先頭に置くと `/api/*` を飲み込む。
         Mount("/", app=_RevalidatingStaticFiles(directory=STATIC_DIR, html=True), name="static"),
     ]
-    middleware = [
-        Middleware(
-            TrustedHostMiddleware,
-            allowed_hosts=allowed_hosts if allowed_hosts is not None else ALLOWED_HOSTS,
-        )
-    ]
+    middleware = [Middleware(TrustedHostMiddleware, allowed_hosts=hosts)]
     return Starlette(routes=routes, middleware=middleware)
 
 

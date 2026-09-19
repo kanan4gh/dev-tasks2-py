@@ -182,3 +182,98 @@ footer.status {
   font-size: 0.78rem;
   padding: 0.6rem 1.2rem 1.4rem;
 }
+
+/* --- 書き込み面 --- */
+
+ul.tasks li { position: relative; }
+ul.tasks li .task-title { cursor: pointer; }
+ul.tasks li .task-id { cursor: pointer; }
+
+.row-actions { display: flex; gap: 0.25rem; opacity: 0; transition: opacity 0.1s; }
+ul.tasks li:hover .row-actions,
+ul.tasks li:focus-within .row-actions { opacity: 1; }
+
+.row-actions button,
+.detail-actions button,
+.form-actions button,
+button.primary {
+  font: inherit;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 0.15rem 0.55rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.row-actions button:hover,
+.detail-actions button:hover,
+.form-actions button:hover,
+button.primary:hover { border-color: var(--accent); color: var(--accent); }
+
+button.primary { font-size: 0.85rem; padding: 0.3rem 0.7rem; }
+
+button.danger { color: var(--high); }
+button.danger:hover { border-color: var(--high); color: var(--high); }
+
+button:disabled { opacity: 0.5; cursor: default; }
+
+.detail-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.dialog { margin-bottom: 1.4rem; }
+
+.task-form {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 1rem 1.2rem;
+  max-width: 46rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.task-form h2 { margin: 0; font-size: 1rem; }
+.task-form label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.82rem; color: var(--muted); }
+.task-form input,
+.task-form textarea,
+.task-form select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.35rem 0.5rem;
+}
+.task-form textarea { resize: vertical; }
+.form-row { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+.form-row label { flex: 1; min-width: 9rem; }
+.form-actions { display: flex; gap: 0.4rem; margin-top: 0.3rem; }
+
+/* 競合はほかのエラーと見た目を分ける。利用者の入力が悪かったのではないため。 */
+.conflict {
+  border: 1px solid var(--medium);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.8rem;
+}
+.conflict-title { color: var(--medium); font-weight: 600; }
+.conflict-current { margin-top: 0.4rem; }
+.conflict button {
+  font: inherit;
+  font-size: 0.8rem;
+  margin-top: 0.6rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}

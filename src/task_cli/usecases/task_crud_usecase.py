@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from task_cli.exceptions import AppError
 from task_cli.models.task import Priority, Task, TaskStatus
 from task_cli.services.global_config_service import GlobalConfigService
 from task_cli.services.task_manager import TaskFilter, TaskManager
@@ -150,6 +151,27 @@ class TaskCrudUseCase:
     def search_tasks(self, keyword: str, project: ProjectTarget = ACTIVE_PROJECT) -> list[Task]:
         return self._get_manager(project).search_tasks(keyword)
 
+    def _require_known_project(self, name: str | None) -> None:
+        """移動先が実在することを、ディレクトリを作る前に確かめる。
+
+        検証が無いと `task-py move 1 typo` が **rc=0 で「移動しました」と表示し
+        ながら**、`config.yaml` に載っていない `projects/typo/` へタスクを
+        置き去りにする。一覧にも検索にも出てこないので、利用者から見ると
+        タスクが消える。
+
+        `None` は Inbox という実在の保存先なので常に有効。
+        """
+        if name is None:
+            return
+        known = {p.name for p in self._global_config_service.get_all().projects}
+        if name not in known:
+            raise AppError(
+                "移動先のプロジェクトが見つかりません。",
+                cause=f"プロジェクト '{name}' は存在しません。",
+                remedy="task-py project list で有効な名前を確認するか、"
+                "task-py project create で作成してください。",
+            )
+
     def search_all_projects(self, keyword: str) -> dict[str | None, list[Task]]:
         """Inbox と全プロジェクトを横断して検索する。
 
@@ -169,6 +191,7 @@ class TaskCrudUseCase:
         self, id: int, target_project: str | None, project: ProjectTarget = ACTIVE_PROJECT
     ) -> Task:
         src_project = self._resolve(project)
+        self._require_known_project(target_project)
         src_storage = self._storage_factory(resolve_storage_path(src_project))
         dst_storage = self._storage_factory(resolve_storage_path(target_project))
 

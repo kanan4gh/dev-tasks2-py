@@ -191,16 +191,49 @@ class TestOverview:
         assert [t["title"] for t in body["tasks"]["inbox"]] == ["タスク"]
 
 
-class TestReadOnly:
+class TestMethodSurface:
+    """登録していないメソッドは 405 になること。
+
+    書き込み面が入ったので「全部 405」ではなくなった。**どの経路がどの
+    メソッドを受けるか**をルーティングで固定していることを確かめる。
+    `OPTIONS` を登録しないのは意図的で、クロスオリジンの JSON 書き込みに
+    必要なプリフライトを通さないため（CSRF 対策の第一層）。
+    """
+
     @pytest.mark.parametrize("method", ["post", "put", "patch", "delete"])
-    @pytest.mark.parametrize(
-        "path", ["/api/tasks", "/api/inbox/tasks", "/api/inbox/tasks/1", "/api/state"]
-    )
-    def test_write_methods_are_rejected(
+    @pytest.mark.parametrize("path", ["/api/tasks", "/api/state", "/api/search", "/api/overview"])
+    def test_read_only_endpoints_reject_writes(
         self, client: TestClient, method: str, path: str
     ) -> None:
-        """読み取り専用であることをルーティングで担保していることの確認。"""
         assert getattr(client, method)(path).status_code == 405
+
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [
+            ("put", "/api/inbox/tasks"),
+            ("patch", "/api/inbox/tasks"),
+            ("delete", "/api/inbox/tasks"),
+            ("put", "/api/inbox/tasks/1"),
+            ("post", "/api/inbox/tasks/1"),
+        ],
+    )
+    def test_unregistered_methods_are_rejected(
+        self, client: TestClient, method: str, path: str
+    ) -> None:
+        assert getattr(client, method)(path).status_code == 405
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/inbox/tasks",
+            "/api/inbox/tasks/1",
+            "/api/inbox/tasks/1/done",
+            "/api/projects/foo/tasks",
+        ],
+    )
+    def test_preflight_is_not_served(self, client: TestClient, path: str) -> None:
+        """OPTIONS を返さない＝クロスオリジンの書き込みが成立しない。"""
+        assert client.options(path).status_code == 405
 
 
 class TestTrustedHost:
