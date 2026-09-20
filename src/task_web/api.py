@@ -1,4 +1,4 @@
-"""読み取り専用の JSON エンドポイント。
+"""JSON エンドポイント（読み取りと、1件ずつの書き込み）。
 
 HTTP のパスとクエリを `usecases` の引数へ変換し、戻り値を JSON にするだけの層で
 ある。ドメインの判断はここに置かない。
@@ -28,7 +28,7 @@ from task_cli.cli.deps import (
     get_time_tracking_use_case,
     get_use_case,
 )
-from task_cli.exceptions import AppError
+from task_cli.exceptions import AppError, NotFoundError, StateConflictError
 from task_cli.models.task import Priority, Task, TaskStatus
 from task_cli.services.daily_service import DailyService
 from task_cli.services.task_manager import InvalidTaskData, TaskFilter
@@ -98,10 +98,6 @@ class BadRequest(AppError):
     """クエリ・本文の値が不正。`AppError` と同じ形で原因と対処を持つ。"""
 
 
-class NotFound(AppError):
-    """対象が存在しない。"""
-
-
 # 例外のクラスから HTTP の状態コードを引く。読み取りだけだったときは
 # 「BadRequest→400 / その他→404」の2分岐で足りたが、書き込みでは
 # 「見つからない」「値が不正」「出自が不正」「版が古い」が混ざる。
@@ -109,7 +105,11 @@ _STATUS_BY_ERROR: tuple[tuple[type[AppError], int], ...] = (
     (BadRequest, 400),
     (InvalidTaskData, 400),
     (csrf.Forbidden, 403),
-    (NotFound, 404),
+    (NotFoundError, 404),
+    # 「いまの状態ではできない」（開始できない・完了できない・まだ解禁されて
+    # いない）は、対象が無いこととは別物。404 にすると、クライアントも画面も
+    # 「経路かタスクが存在しない」と読んでしまう。
+    (StateConflictError, 409),
     (versions.Conflict, 409),
     (csrf.UnsupportedMedia, 415),
     (versions.PreconditionRequired, 428),
@@ -120,9 +120,9 @@ def _status_for(error: AppError) -> int:
     for kind, status in _STATUS_BY_ERROR:
         if isinstance(error, kind):
             return status
-    # ドメイン層が投げる素の AppError は「見つからない」か「その状態では
-    # できない」。前者に寄せる（読み取り面からの挙動を変えない）。
-    return 404
+    # どれにも当たらない素の AppError は想定外。404 と偽らず 500 にする
+    # （「見つからない」は `NotFoundError` が明示的に受け持つ）。
+    return 500
 
 
 def _error_response(error: AppError, status: int) -> JSONResponse:
@@ -371,7 +371,9 @@ def _require_project(request: Request) -> str:
     for entry in get_global_config_service().get_all().projects:
         if entry.name == name:
             return name
-    raise AppError(
+    # `NotFound` を使うのは、素の `AppError` が「404 に落ちる」という暗黙の既定に
+    # 頼らないため。例外のクラスで状態コードを決める、という規則を守る。
+    raise NotFoundError(
         "プロジェクトが見つかりません。",
         cause=f"プロジェクト '{name}' は存在しません。",
         remedy="task-py project list で有効な名前を確認してください。",
@@ -395,6 +397,7 @@ def create_task(request: Request, payload: dict[str, Any]) -> JSONResponse:
         description=_optional_str(payload, "description") or "",
         priority=_priority(payload),
         due_date=_optional_str(payload, "due_date"),
+        scheduled_date=_optional_str(payload, "scheduled_date"),
         project=project,
     )
     return _task_response(project, task, status=201)
@@ -405,19 +408,20 @@ def edit_task(request: Request, payload: dict[str, Any]) -> JSONResponse:
     project = _target_project(request)
     task_id = request.path_params["task_id"]
     uc = get_use_case()
-    _check_version(request, uc.get_task(task_id, project=project))
-
-    updated = uc.edit_task(
-        task_id,
-        title=_optional_str(payload, "title"),
-        description=_optional_str(payload, "description"),
-        priority=_priority(payload) if "priority" in payload else None,
-        due_date=_optional_str(payload, "due_date"),
-        clear_due_date=_is_cleared(payload, "due_date"),
-        scheduled_date=_optional_str(payload, "scheduled_date"),
-        clear_scheduled_date=_is_cleared(payload, "scheduled_date"),
-        project=project,
-    )
+    # 値の解釈（400 になりうる部分）は区間に入る前に済ませる。ロックを握ったまま
+    # 入力の誤りで落ちる必要はない。
+    fields = {
+        "title": _optional_title(payload),
+        "description": _optional_str(payload, "description"),
+        "priority": _optional_priority(payload),
+        "due_date": _optional_str(payload, "due_date"),
+        "clear_due_date": _is_cleared(payload, "due_date"),
+        "scheduled_date": _optional_str(payload, "scheduled_date"),
+        "clear_scheduled_date": _is_cleared(payload, "scheduled_date"),
+    }
+    with uc.guarded(project):
+        _check_version(request, uc.get_task(task_id, project=project))
+        updated = uc.edit_task(task_id, project=project, **fields)
     return _task_response(project, updated)
 
 
@@ -437,14 +441,14 @@ def _transition(request: Request, action: str) -> JSONResponse:
     project = _target_project(request)
     task_id = request.path_params["task_id"]
     uc = get_use_case()
-    _check_version(request, uc.get_task(task_id, project=project))
-
-    if action == "start":
-        task = uc.start_task(task_id, project=project)
-    elif action == "done":
-        task = uc.complete_task(task_id, project=project)
-    else:
-        task = uc.archive_task(task_id, project=project)
+    with uc.guarded(project):
+        _check_version(request, uc.get_task(task_id, project=project))
+        if action == "start":
+            task = uc.start_task(task_id, project=project)
+        elif action == "done":
+            task = uc.complete_task(task_id, project=project)
+        else:
+            task = uc.archive_task(task_id, project=project)
     return _task_response(project, task)
 
 
@@ -452,9 +456,9 @@ def delete_task(request: Request, payload: dict[str, Any]) -> JSONResponse:
     project = _target_project(request)
     task_id = request.path_params["task_id"]
     uc = get_use_case()
-    _check_version(request, uc.get_task(task_id, project=project))
-
-    uc.delete_task(task_id, project=project)
+    with uc.guarded(project):
+        _check_version(request, uc.get_task(task_id, project=project))
+        uc.delete_task(task_id, project=project)
     return JSONResponse({"deleted": {"project": project, "id": task_id}})
 
 
@@ -467,7 +471,6 @@ def move_task(request: Request, payload: dict[str, Any]) -> JSONResponse:
     project = _target_project(request)
     task_id = request.path_params["task_id"]
     uc = get_use_case()
-    _check_version(request, uc.get_task(task_id, project=project))
 
     if "project" not in payload:
         raise BadRequest(
@@ -483,7 +486,10 @@ def move_task(request: Request, payload: dict[str, Any]) -> JSONResponse:
             remedy='文字列、または Inbox なら null を指定してください。',
         )
 
-    moved = uc.move_task(task_id, target, project=project)
+    # 移動元と移動先の両方を1つの区間で握る（`move_task` の内側と同じ集合）。
+    with uc.guarded(project, target):
+        _check_version(request, uc.get_task(task_id, project=project))
+        moved = uc.move_task(task_id, target, project=project)
     return _task_response(target, moved)
 
 
@@ -506,6 +512,7 @@ def _task_response(project: str | None, task: Task, status: int = 200) -> JSONRe
 
 
 def _require_str(payload: dict[str, Any], key: str) -> str:
+    """必須の文字列。前後の空白は落とす（空白だけは空とみなす）。"""
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise BadRequest(
@@ -513,13 +520,45 @@ def _require_str(payload: dict[str, Any], key: str) -> str:
             cause=f"本文の {key} が空か、文字列ではありません。",
             remedy=f"{key} に文字列を指定してください。",
         )
-    return value
+    return value.strip()
+
+
+def _optional_title(payload: dict[str, Any]) -> str | None:
+    """編集用のタイトル。送られてこなければ None（＝変更しない）。
+
+    作成では空白だけのタイトルを弾いているのに、編集で通すと、一覧に
+    クリックしにくい空の行が残る。`Task.title` は `min_length=1` しか
+    見ないので、ここで空白だけを断る。
+    """
+    value = _optional_str(payload, "title")
+    if value is None:
+        return None
+    if not value.strip():
+        raise BadRequest(
+            "title が指定されていません。",
+            cause="本文の title が空白だけです。",
+            remedy="title に文字列を指定してください。",
+        )
+    return value.strip()
+
+
+# `null` を「消す」と解釈できるのは、空にできるフィールドだけ。タイトル・説明・
+# 優先度は必ず値を持つので、そこへの `null` は意味を成さない。**黙って無視すると
+# 「送ったのに反映されない」形の欠陥になる**ので、はっきり断る。
+_NULLABLE_FIELDS = frozenset({"due_date", "scheduled_date"})
 
 
 def _optional_str(payload: dict[str, Any], key: str) -> str | None:
-    """送られてこなかった、または null のときは None（＝変更しない）。"""
-    value = payload.get(key)
+    """送られてこなかったときは None（＝変更しない）。
+
+    `null` は、空にできるフィールドなら「消す」（`_is_cleared` が拾う）、
+    そうでなければ 400。
+    """
+    if key not in payload:
+        return None
+    value = payload[key]
     if value is None:
+        _reject_null(key)
         return None
     if not isinstance(value, str):
         raise BadRequest(
@@ -528,6 +567,29 @@ def _optional_str(payload: dict[str, Any], key: str) -> str | None:
             remedy=f"{key} には文字列を指定してください。",
         )
     return value
+
+
+def _reject_null(key: str) -> None:
+    if key in _NULLABLE_FIELDS:
+        return
+    raise BadRequest(
+        f"{key} を空にはできません。",
+        cause=f"{key} に null が指定されました。",
+        remedy=f"{key} を変えないなら送らないでください。変えるなら値を指定してください。",
+    )
+
+
+def _optional_priority(payload: dict[str, Any]) -> Priority | None:
+    """編集用。送られてこなければ None（＝変更しない）。
+
+    以前は `null` を既定値の `medium` に読み替えており、`high` のタスクが
+    **黙って降格していた**。
+    """
+    if "priority" not in payload:
+        return None
+    if payload["priority"] is None:
+        _reject_null("priority")
+    return _priority(payload)
 
 
 def _is_cleared(payload: dict[str, Any], key: str) -> bool:

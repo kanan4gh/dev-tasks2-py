@@ -165,6 +165,16 @@ class TaskManager:
 - `cause`: なぜ失敗したか
 - `remedy`: 利用者が次に何をすればよいか
 
+**用途に合うサブクラスを使う。** 素の `AppError` を投げると、Web では想定外として 500 になる（404 と偽らない）。
+
+| 状況 | 使うクラス | Web の状態コード |
+|---|---|---|
+| 対象（タスク・プロジェクト）が存在しない | `NotFoundError` | 404 |
+| いまの状態ではできない（開始・完了できない、まだ解禁されていない） | `StateConflictError` | 409 |
+| 値が不正で保存できない | `InvalidTaskData`（`services/task_manager.py`） | 400 |
+
+新しい種類のエラーを足すときは、Web 側の対応表（`task_web/api.py` の `_STATUS_BY_ERROR`）にも足す。いずれも `AppError` のサブクラスなので、CLI と MCP は従来どおり `except AppError` で扱える。
+
 予期しない例外を握りつぶさない。復旧可能な境界で別の例外を捕捉する場合も、元の原因を失わない説明または例外チェーンを残す。CLI固有の終了コードと表示はCLIレイヤー、MCP向けの変換はMCPレイヤーで扱う。
 
 ### コメントとdocstring

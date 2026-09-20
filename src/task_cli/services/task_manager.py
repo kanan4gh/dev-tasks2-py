@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from task_cli.exceptions import AppError
+from task_cli.exceptions import AppError, NotFoundError, StateConflictError
 from task_cli.models.task import Priority, Task, TaskStatus
 from task_cli.models.time import WorkSession
 from task_cli.storage.file_storage import FileStorage
@@ -23,8 +23,9 @@ class InvalidTaskData(AppError):
     """タスクの値が不正で保存できない。
 
     呼び出し側（CLI / MCP / Web）が「見つからない」と区別できるよう、
-    `AppError` のサブクラスにしてある。Web 層はこれを 400 に、それ以外の
-    `AppError` を 404 に写す。
+    `AppError` のサブクラスにしてある。Web 層はこれを 400 に写す
+    （`NotFoundError` は 404、`StateConflictError` は 409。どれにも当たらない
+    素の `AppError` は 500 になる）。
     """
 
 
@@ -85,6 +86,7 @@ class TaskManager:
         description: str = "",
         priority: Priority = Priority.MEDIUM,
         due_date: str | None = None,
+        scheduled_date: str | None = None,
     ) -> Task:
         with self._storage.transaction():
             tasks = self._storage.load()
@@ -95,6 +97,7 @@ class TaskManager:
                     description=description,
                     priority=priority,
                     due_date=due_date,
+                    scheduled_date=scheduled_date,
                 )
             except ValidationError as e:
                 # 生の ValidationError を入口まで通すと、CLI も MCP も
@@ -122,7 +125,7 @@ class TaskManager:
         for task in self._storage.load():
             if task.id == id:
                 return task
-        raise AppError(
+        raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
             remedy="task list で有効なIDを確認してください。",
@@ -141,7 +144,7 @@ class TaskManager:
                     tasks[i] = updated
                     self._storage.save(tasks)
                     return updated
-        raise AppError(
+        raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
             remedy="task list で有効なIDを確認してください。",
@@ -164,7 +167,7 @@ class TaskManager:
                     tasks[i] = updated
                     self._storage.save(tasks)
                     return updated
-        raise AppError(
+        raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
             remedy="task list で有効なIDを確認してください。",
@@ -178,7 +181,7 @@ class TaskManager:
                     tasks.pop(i)
                     self._storage.save(tasks)
                     return
-        raise AppError(
+        raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
             remedy="task list で有効なIDを確認してください。",
@@ -218,7 +221,7 @@ class TaskManager:
     def start_task(self, id: int) -> Task:
         task = self.get_task(id)
         if not task.can_transition_to(TaskStatus.IN_PROGRESS):
-            raise AppError(
+            raise StateConflictError(
                 "このタスクは開始できません。",
                 cause=f"{task.status.value} のタスクは in_progress に変更できません。",
                 remedy="タスクのステータスを確認してください。",
@@ -226,7 +229,7 @@ class TaskManager:
         if task.scheduled_date is not None:
             today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
             if task.scheduled_date > today:
-                raise AppError(
+                raise StateConflictError(
                     "このタスクはまだ解禁されていません。",
                     cause=f"scheduled_date ({task.scheduled_date}) が未来のため着手できません。",
                     remedy=f"解禁日 ({task.scheduled_date}) 以降に start を実行してください。",
@@ -236,7 +239,7 @@ class TaskManager:
     def complete_task(self, id: int) -> Task:
         task = self.get_task(id)
         if not task.can_transition_to(TaskStatus.COMPLETED):
-            raise AppError(
+            raise StateConflictError(
                 "このタスクは完了できません。",
                 cause=f"{task.status.value} のタスクは completed に変更できません。",
                 remedy="task start <id> でタスクを開始してから完了してください。",
@@ -246,7 +249,7 @@ class TaskManager:
     def archive_task(self, id: int) -> Task:
         task = self.get_task(id)
         if not task.can_transition_to(TaskStatus.ARCHIVED):
-            raise AppError(
+            raise StateConflictError(
                 "このタスクはアーカイブできません。",
                 cause=f"{task.status.value} のタスクは archived に変更できません。",
                 remedy="in_progress のタスクは先に完了させてください。",

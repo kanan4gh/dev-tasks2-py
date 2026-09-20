@@ -12,6 +12,8 @@ GUI はタスクを画面に出したまま放置される。その間に CLI �
 競合していないものを競合と呼ばずに済んでいる。
 """
 
+from starlette.datastructures import Headers
+
 from task_cli.exceptions import AppError
 from task_cli.models.task import Task
 
@@ -30,14 +32,14 @@ class Conflict(AppError):
         self.current = current
 
 
-def required_version(headers: object) -> str:
+def required_version(headers: Headers) -> str:
     """`If-Match` から期待する版を取り出す。無ければ 428 相当。
 
     **「省略したら上書き」にしない。** 黙って危険側に倒れる既定値を作ると、
     クライアントを書く側が気づかないまま競合検出を失う。
     """
-    value = _header(headers, IF_MATCH)
-    if not value:
+    value = headers.get(IF_MATCH)
+    if not value or value.strip() == "*":
         raise PreconditionRequired(
             "更新するには、いま表示している内容の版が必要です。",
             cause="If-Match ヘッダが指定されていません。",
@@ -72,17 +74,17 @@ def version_of(task: Task) -> str:
     return str(task.model_dump(mode="json")["updated_at"])
 
 
-def _header(headers: object, name: str) -> str | None:
-    getter = getattr(headers, "get", None)
-    if getter is None:
-        return None
-    value = getter(name)
-    return value if isinstance(value, str) else None
-
-
 def _unquote(value: str) -> str:
-    """`If-Match` は ETag の形（引用符つき）で来ることがあるので外す。"""
+    """`If-Match` は ETag の形で来ることがあるので、包みを外す。
+
+    `"v"`（強い検証子）と `W/"v"`（弱い検証子）の両方を受ける。弱い検証子の
+    `W/` を外さないと、プロキシが付け替えただけで**毎回かならず 409** になる。
+    `*`（何でも良い）は「版を確認しない」の意味になり、競合検出を無効にして
+    しまうので受け付けない（428 と同じ扱い）。
+    """
     stripped = value.strip()
+    if stripped.startswith(("W/", "w/")):
+        stripped = stripped[2:]
     if len(stripped) >= 2 and stripped[0] == '"' and stripped[-1] == '"':
         return stripped[1:-1]
     return stripped

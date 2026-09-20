@@ -65,10 +65,12 @@ class _RevalidatingStaticFiles(StaticFiles):
 
 
 def create_app(allowed_hosts: list[str] | None = None) -> Starlette:
-    """読み取り専用の Starlette アプリを組み立てる。
+    """Starlette アプリを組み立てる。
 
-    ルーティングには `GET` しか登録しない。「書き込まないよう気をつける」ので
-    はなく、書き込みメソッドが 405 になることを機構で担保する。
+    読み取りに加えて、1件ずつの書き込み（追加・編集・状態変更・移動・削除）を
+    受ける。書き込みは `csrf.py` の出自検査と `versions.py` の版の照合を通る。
+    登録していないメソッド（`OPTIONS` を含む）は 405 になり、これがクロス
+    オリジンの JSON 書き込みに必要なプリフライトを通さない防御の第一層になる。
     """
     hosts = allowed_hosts if allowed_hosts is not None else ALLOWED_HOSTS
     routes = [

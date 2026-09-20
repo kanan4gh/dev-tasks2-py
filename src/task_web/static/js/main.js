@@ -79,6 +79,7 @@ function App() {
   // 食い違いは保存時に 409 で分かる。
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [writeError, setWriteError] = useState(null);
 
   // 取得したデータには「どのビューのものか」を必ず添える。view だけを先に
@@ -140,12 +141,20 @@ function App() {
     return stop;
   }, []);
 
+  // 別の画面へ移ったら、前の画面の書き込みエラーは消す。残すと、別のタスクの
+  // ものなのに今の画面のエラーに見える（409 なら古い「現在の内容」も出続ける）。
+  useEffect(() => {
+    setWriteError(null);
+  }, [view]);
+
   const openTask = useCallback((project, id) => setView({ kind: "task", project, id }), []);
   const back = useCallback(() => setView({ kind: "all" }), []);
 
   // 書き込みは楽観的更新をしない。応答を待ってから取り直す。画面とファイルが
   // 食い違う状態を作らないため。
   const run = useCallback(async (fn) => {
+    // state は次の描画まで古いので、二重起動の判定には ref を使う。
+    busyRef.current = true;
     setBusy(true);
     setWriteError(null);
     try {
@@ -157,17 +166,39 @@ function App() {
       setWriteError(e);
       return false;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }, []);
 
+  // 書き込み中は次の操作を受け付けない。二重クリックすると、2つ目は1つ目が
+  // 進めた版を持たないので 409 になり、**成功した直後に「別の場所で変更されました」
+  // と出る**（実際には自分の1つ目の操作との競合）。
   const rowAction = useCallback(
-    (project, task, action) =>
-      run(() => api.transition(project, task.id, action, task.updated_at)),
+    (project, task, action) => {
+      if (busyRef.current) return Promise.resolve(false);
+      return run(() => api.transition(project, task.id, action, task.updated_at));
+    },
     [run]
   );
 
-  const reloadAfterConflict = useCallback(() => {
+  // 競合したとき、**入力中の内容は捨てない**。サーバは 409 の本文に現在の
+  // タスクを載せてくるので、フォームはそのまま残し、比べる基準の版だけを
+  // 最新に差し替える。利用者は現在の内容を見たうえで、自分の内容のまま
+  // もう一度保存するか、やめるかを選べる。
+  //
+  // 以前は「最新を読み込む」でフォームごと閉じていた。長い説明を書いたあとに
+  // 競合すると、入力が消える上に、古い版のまま再保存しても永遠に 409 だった。
+  const adoptLatest = useCallback(() => {
+    setDialog((current) => {
+      if (!current || !writeError || !writeError.current) return current;
+      return { ...current, task: writeError.current };
+    });
+    setWriteError(null);
+    setReloadToken((n) => n + 1);
+  }, [writeError]);
+
+  const dismissAfterConflict = useCallback(() => {
     setWriteError(null);
     setDialog(null);
     setReloadToken((n) => n + 1);
@@ -240,7 +271,12 @@ function App() {
       <main>
         ${dialog &&
         html`<div class="dialog">
-          ${writeError && html`<${ErrorBox} error=${writeError} onReload=${reloadAfterConflict} />`}
+          ${writeError &&
+            html`<${ErrorBox}
+              error=${writeError}
+              onReload=${adoptLatest}
+              onDismiss=${dismissAfterConflict}
+            />`}
           ${dialog.kind === "create" &&
           html`<${TaskForm}
             title=${`${dialog.project === null ? "Inbox" : dialog.project} に追加`}
@@ -257,10 +293,18 @@ function App() {
             submitLabel="保存する"
             busy=${busy}
             onCancel=${() => setDialog(null)}
-            onSubmit=${(fields) =>
+            onSubmit=${(fields) => {
+              const payload = toPayload(fields, { original: dialog.original });
+              // 何も触らずに保存しても、サーバへは送らない。送ると中身は変わらないのに
+              // updated_at だけが進み、ほかの画面に無用な競合を起こす。
+              if (Object.keys(payload).length === 0) {
+                setDialog(null);
+                return;
+              }
               run(() =>
-                api.edit(dialog.project, dialog.task.id, toPayload(fields), dialog.task.updated_at)
-              )}
+                api.edit(dialog.project, dialog.task.id, payload, dialog.task.updated_at)
+              );
+            }}
           />`}
           ${dialog.kind === "move" &&
           html`<${MoveForm}
@@ -289,7 +333,7 @@ function App() {
         </div>`}
         ${!dialog &&
         writeError &&
-        html`<${ErrorBox} error=${writeError} onReload=${reloadAfterConflict} />`}
+        html`<${ErrorBox} error=${writeError} onReload=${dismissAfterConflict} />`}
         ${error && html`<${ErrorBox} error=${error} />`}
         ${!error && !ready && html`<p class="empty">読み込み中…</p>`}
         ${ready && view.kind === "overview" && html`<${Overview} data=${data} onOpen=${openTask} onAction=${rowAction} />`}
@@ -336,7 +380,21 @@ function App() {
           project=${data.project}
           task=${data.task}
           onBack=${back}
-          onEdit=${() => setDialog({ kind: "edit", project: data.project, task: data.task })}
+          onEdit=${() =>
+            setDialog({
+              kind: "edit",
+              project: data.project,
+              task: data.task,
+              // 開いた時点の値。あとで「触った項目だけ」を送るための基準になる。
+              // 競合のあと task の版だけ差し替えても、これは変えない。
+              original: {
+                title: data.task.title,
+                description: data.task.description,
+                priority: data.task.priority,
+                due_date: data.task.due_date,
+                scheduled_date: data.task.scheduled_date,
+              },
+            })}
           onMove=${() => setDialog({ kind: "move", project: data.project, task: data.task })}
           onDelete=${() => setDialog({ kind: "delete", project: data.project, task: data.task })}
         />`}
@@ -351,17 +409,26 @@ function App() {
   `;
 }
 
-// フォームの空欄を API の形に直す。
+// フォームの内容を API の形に直す。
 //
-// **「キーが無い＝変更しない」と「null＝消す」をサーバ側で区別している**ので、
-// 編集では空欄を null（＝消す）として送る。追加では消すものが無いので送らない。
-function toPayload(fields, { create = false } = {}) {
-  const payload = {
-    title: fields.title,
-    description: fields.description,
-    priority: fields.priority,
-  };
+// **編集では、利用者が実際に触った項目だけを送る。** 全項目を送ると、フォームを
+// 開いたあとに別の場所で変わった項目まで、開いた時点の値で黙って書き戻してしまう。
+// 競合の警告を見て「最新に合わせて続ける」を選んでも、触っていない項目に
+// ついては、相手の変更を守らなければ競合検出をした意味がない。
+//
+// **「キーが無い＝変更しない」「null＝消す」をサーバ側で区別している**ので、
+// 期限と解禁日は空欄にしたら null（＝消す）として送る。追加では消すものが無い
+// ので送らない。
+function toPayload(fields, { create = false, original = null } = {}) {
+  const payload = {};
+
+  const changed = (key) => !original || (original[key] || "") !== (fields[key] || "");
+
+  for (const key of ["title", "description", "priority"]) {
+    if (create || changed(key)) payload[key] = fields[key];
+  }
   for (const key of ["due_date", "scheduled_date"]) {
+    if (!create && !changed(key)) continue;
     const value = fields[key];
     if (value) payload[key] = value;
     else if (!create) payload[key] = null;

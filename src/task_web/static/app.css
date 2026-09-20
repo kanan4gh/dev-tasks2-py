@@ -277,3 +277,17 @@ button:disabled { opacity: 0.5; cursor: default; }
   padding: 0.2rem 0.6rem;
   cursor: pointer;
 }
+
+.conflict-actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+.conflict-actions button {
+  font: inherit;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
+.conflict-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.conflict button { margin-top: 0; }

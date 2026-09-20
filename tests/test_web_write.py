@@ -12,6 +12,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from task_cli.cli.deps import get_use_case
+from task_cli.models.task import Priority
 from task_cli.services.project_service import ProjectService
 from task_cli.storage.global_config_storage import GlobalConfigStorage
 from task_web.server import create_app
@@ -175,14 +176,27 @@ class TestTransitions:
         ).json()
         assert archived["task"]["status"] == "archived"
 
-    def test_invalid_transition_is_404_with_reason(self, client: TestClient) -> None:
-        """open から直接 done にはできない（CLI と同じ規則）。"""
+    def test_invalid_transition_is_409_not_404(self, client: TestClient) -> None:
+        """open から直接 done にはできない（CLI と同じ規則）。
+
+        対象が無いわけではないので 404 ではない。404 にすると、クライアントも
+        画面も「経路かタスクが存在しない」と読んでしまう。
+        """
         get_use_case().add_task("タスク", project=None)
         path = "/api/inbox/tasks/1"
 
         response = write(client, "POST", f"{path}/done", if_match=version_of(client, path))
-        assert response.status_code == 404
+
+        assert response.status_code == 409
         assert response.json()["error"]["remedy"]
+        # 競合（版の食い違い）とは別物なので、現在のタスクは添えない
+        assert "current" not in response.json()
+
+    def test_missing_task_is_still_404(self, client: TestClient) -> None:
+        response = write(
+            client, "POST", "/api/inbox/tasks/999/start", if_match="2026-01-01T00:00:00Z"
+        )
+        assert response.status_code == 404
 
 
 class TestDelete:
@@ -398,3 +412,260 @@ class TestMalformedBody:
     def test_non_object_json_is_400(self, client: TestClient) -> None:
         response = client.post("/api/inbox/tasks", content=b"[1,2,3]", headers=JSON)
         assert response.status_code == 400
+
+
+class TestValuesAreNotSilentlyDropped:
+    """送った値が黙って捨てられたり、送っていない値が黙って変わったりしないこと。
+
+    どちらも「成功を報告しながら利用者の意図と違う結果を残す」形の欠陥で、
+    この作業単位が繰り返し潰してきたクラスにあたる。
+    """
+
+    def test_scheduled_date_survives_creation(self, client: TestClient) -> None:
+        """作成時に送った解禁日が保存されること。
+
+        画面のフォームは解禁日の欄を出しているので、無視されると入力が消える。
+        """
+        body = write(
+            client,
+            "POST",
+            "/api/inbox/tasks",
+            {"title": "解禁日つき", "scheduled_date": "2026-12-31"},
+        ).json()
+
+        assert body["task"]["scheduled_date"] == "2026-12-31"
+        assert client.get("/api/inbox/tasks/1").json()["task"]["scheduled_date"] == "2026-12-31"
+
+    def test_priority_is_not_silently_downgraded(self, client: TestClient) -> None:
+        """`priority: null` で high が medium に落ちないこと。
+
+        優先度は必ず値を持つので null は意味を成さない。黙って既定値に
+        読み替えると、利用者が触っていない項目が静かに変わる。
+        """
+        get_use_case().add_task("高優先度のタスク", priority=Priority.HIGH, project=None)
+        path = "/api/inbox/tasks/1"
+
+        response = write(
+            client, "PATCH", path, {"title": "新", "priority": None},
+            if_match=version_of(client, path),
+        )
+
+        assert response.status_code == 400
+        assert client.get(path).json()["task"]["priority"] == "high"
+
+    @pytest.mark.parametrize("key", ["title", "description", "priority"])
+    def test_null_on_a_non_emptyable_field_is_400(self, client: TestClient, key: str) -> None:
+        get_use_case().add_task("タスク", project=None)
+        path = "/api/inbox/tasks/1"
+
+        response = write(
+            client, "PATCH", path, {key: None}, if_match=version_of(client, path)
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["remedy"]
+
+    @pytest.mark.parametrize("key", ["due_date", "scheduled_date"])
+    def test_null_on_an_emptyable_field_clears_it(self, client: TestClient, key: str) -> None:
+        get_use_case().add_task("タスク", due_date="2026-12-31", project=None)
+        path = "/api/inbox/tasks/1"
+        write(
+            client, "PATCH", path, {"scheduled_date": "2026-12-31"},
+            if_match=version_of(client, path),
+        )
+
+        body = write(
+            client, "PATCH", path, {key: None}, if_match=version_of(client, path)
+        ).json()
+
+        assert body["task"][key] is None
+
+    def test_omitted_fields_are_left_alone(self, client: TestClient) -> None:
+        get_use_case().add_task(
+            "タスク", description="説明", priority=Priority.HIGH, due_date="2026-12-31",
+            project=None,
+        )
+        path = "/api/inbox/tasks/1"
+
+        body = write(
+            client, "PATCH", path, {"title": "新しいタイトル"},
+            if_match=version_of(client, path),
+        ).json()
+
+        assert body["task"]["title"] == "新しいタイトル"
+        assert body["task"]["description"] == "説明"
+        assert body["task"]["priority"] == "high"
+        assert body["task"]["due_date"] == "2026-12-31"
+
+
+class TestMoveToTheSamePlace:
+    def test_moving_to_the_current_project_does_nothing(self, client: TestClient) -> None:
+        """すでにそこに居るなら何もしない。
+
+        そのまま通すと移動先で採番し直されて ID が変わり、開いている
+        詳細画面が 404 になる。
+        """
+        get_use_case().add_task("Inbox のタスク", project=None)
+        path = "/api/inbox/tasks/1"
+
+        body = write(
+            client, "POST", f"{path}/move", {"project": None},
+            if_match=version_of(client, path),
+        ).json()
+
+        assert body["project"] is None
+        assert body["task"]["id"] == 1
+        assert [t.id for t in get_use_case().list_tasks(project=None)] == [1]
+
+    def test_the_same_holds_for_a_named_project(self, client: TestClient) -> None:
+        make_project("foo")
+        get_use_case().add_task("foo のタスク", project="foo")
+        path = "/api/projects/foo/tasks/1"
+
+        body = write(
+            client, "POST", f"{path}/move", {"project": "foo"},
+            if_match=version_of(client, path),
+        ).json()
+
+        assert body["task"]["id"] == 1
+        assert [t.id for t in get_use_case().list_tasks(project="foo")] == [1]
+
+
+class TestVersionCheckAndWriteAreAtomic:
+    """照合から書き込みまでの間に、他プロセスが割り込めないこと（段3 指摘1）。
+
+    照合と書き込みを別々のロック区間で行うと、その隙間に CLI が同じタスクを
+    書き換えたとき、競合検出をすり抜けて黙って上書きしてしまう。
+
+    「照合の直後・書き込みの直前」に別スレッドから同じファイルを書かせ、その
+    書き込みが**待たされるか**を見る。区間が握られていれば、割り込みは GUI の
+    書き込みが終わるまで待たされる。
+    """
+
+    def _try_to_interleave(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch, if_match: str
+    ) -> dict[str, Any]:
+        import threading
+
+        from task_cli.services import task_manager as tm
+
+        real_update = tm.TaskManager.update_task
+        seen: dict[str, Any] = {"armed": True}
+
+        def update_after_a_rival_write(self: Any, id: int, **kwargs: Any) -> Any:
+            if seen["armed"]:
+                seen["armed"] = False
+                rival = threading.Thread(
+                    target=lambda: get_use_case().edit_task(
+                        1, title="CLI が割り込んだタイトル", project=None
+                    )
+                )
+                rival.start()
+                rival.join(timeout=0.5)
+                # 0.5 秒待っても終わらない＝ロックで待たされている
+                seen["rival_was_blocked"] = rival.is_alive()
+                seen["rival"] = rival
+            return real_update(self, id, **kwargs)
+
+        monkeypatch.setattr(tm.TaskManager, "update_task", update_after_a_rival_write)
+        response = write(
+            client,
+            "PATCH",
+            "/api/inbox/tasks/1",
+            {"title": "GUI が保存したタイトル"},
+            if_match=if_match,
+        )
+        seen["status"] = response.status_code
+        rival = seen.get("rival")
+        if rival is not None:
+            rival.join(timeout=5)
+        return seen
+
+    def test_a_write_landing_in_the_gap_is_blocked(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        get_use_case().add_task("元のタイトル", project=None)
+        seen_version = version_of(client, "/api/inbox/tasks/1")
+
+        result = self._try_to_interleave(client, monkeypatch, seen_version)
+
+        assert result["status"] == 200
+        assert result["rival_was_blocked"] is True, (
+            "照合と書き込みの間に他プロセスが書けてしまった（競合検出をすり抜ける）"
+        )
+
+
+class TestIfMatchParsing:
+    """`If-Match` は ETag の形で来ることがある（段3 指摘6）。
+
+    弱い検証子（`W/"..."`）をプロキシが付け替えただけで毎回 409 になったり、
+    `*` で競合検出が無効になったりしてはいけない。
+    """
+
+    def test_weak_validator_is_accepted(self, client: TestClient) -> None:
+        get_use_case().add_task("タスク", project=None)
+        path = "/api/inbox/tasks/1"
+        version = version_of(client, path)
+
+        response = write(client, "PATCH", path, {"title": "新"}, if_match=f'W/"{version}"')
+
+        assert response.status_code == 200
+
+    def test_star_does_not_switch_off_conflict_detection(self, client: TestClient) -> None:
+        """`If-Match: *` は「何でも良い」＝版を確認しない。受け付けると競合検出が無効になる。"""
+        get_use_case().add_task("タスク", project=None)
+
+        response = write(client, "PATCH", "/api/inbox/tasks/1", {"title": "新"}, if_match="*")
+
+        assert response.status_code == 428
+
+
+class TestTitleHandling:
+    """空白だけのタイトルを、作成でも編集でも通さないこと（段3 指摘2）。"""
+
+    def test_blank_title_on_edit_is_400(self, client: TestClient) -> None:
+        get_use_case().add_task("元のタイトル", project=None)
+        path = "/api/inbox/tasks/1"
+
+        response = write(
+            client, "PATCH", path, {"title": "   "}, if_match=version_of(client, path)
+        )
+
+        assert response.status_code == 400
+        assert client.get(path).json()["task"]["title"] == "元のタイトル"
+
+    def test_surrounding_whitespace_is_trimmed(self, client: TestClient) -> None:
+        body = write(client, "POST", "/api/inbox/tasks", {"title": "  余白つき  "}).json()
+        assert body["task"]["title"] == "余白つき"
+
+        path = "/api/inbox/tasks/1"
+        edited = write(
+            client, "PATCH", path, {"title": "  編集後  "}, if_match=version_of(client, path)
+        ).json()
+        assert edited["task"]["title"] == "編集後"
+
+
+class TestStatusCodes:
+    """404 は「対象が無い」だけに使う（段3 指摘5）。"""
+
+    def test_move_to_an_unknown_project_is_404(self, client: TestClient) -> None:
+        get_use_case().add_task("タスク", project=None)
+        path = "/api/inbox/tasks/1"
+        response = write(
+            client, "POST", f"{path}/move", {"project": "nope"}, if_match=version_of(client, path)
+        )
+        assert response.status_code == 404
+
+    def test_not_yet_unlocked_is_409(self, client: TestClient) -> None:
+        """解禁日が未来のタスクは開始できない。対象は存在するので 404 ではない。"""
+        get_use_case().add_task("未来のタスク", project=None)
+        path = "/api/inbox/tasks/1"
+        write(
+            client, "PATCH", path, {"scheduled_date": "2999-01-01"},
+            if_match=version_of(client, path),
+        )
+
+        response = write(client, "POST", f"{path}/start", if_match=version_of(client, path))
+
+        assert response.status_code == 409
+        assert "current" not in response.json()

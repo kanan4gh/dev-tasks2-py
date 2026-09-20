@@ -303,7 +303,7 @@ export function Overview({ data, onOpen, onAction }) {
   `;
 }
 
-export function ErrorBox({ error, onReload }) {
+export function ErrorBox({ error, onReload, onDismiss }) {
   // 競合はほかのエラーと同じ赤い箱に流し込まない。混ぜると「自分の入力が
   // 悪かった」と誤解される。原因は利用者の入力ではなく、別の場所での変更である。
   if (error.isConflict) {
@@ -316,8 +316,12 @@ export function ErrorBox({ error, onReload }) {
           <span class="meta">（${error.current.status}・${error.current.priority}）</span>
         </div>`}
         <div class="remedy">${error.remedy}</div>
-        ${onReload &&
-        html`<button type="button" onClick=${onReload}>最新を読み込む</button>`}
+        <div class="conflict-actions">
+          ${onReload &&
+          html`<button type="button" onClick=${onReload}>最新の内容に合わせて続ける</button>`}
+          ${onDismiss &&
+          html`<button type="button" onClick=${onDismiss}>入力を捨てて閉じる</button>`}
+        </div>
       </div>
     `;
   }
