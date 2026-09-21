@@ -11,11 +11,14 @@ GUI（ローカル Web サーバー）は CLI や MCP サーバーとは別の�
 本当に競合を作れていることを示す。
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # 1本目が load を終えてから save するまでの待ち時間。2本目はこの窓の中で
 # 走り出す（合図ファイルで同期するので、プロセス起動のばらつきに依存しない）。
@@ -186,3 +189,109 @@ class TestConcurrentProjectCreation:
         assert len(config.projects) < 2 or len(set(ids)) < len(ids), (
             "この仕掛けでは競合が起きていない"
         )
+
+
+
+_WEB_DONE = """
+import os, sys, time
+from pathlib import Path
+from task_cli.cli.deps import get_use_case
+from task_cli.usecases import task_crud_usecase as crud
+
+signal, go = Path(sys.argv[1]), Path(sys.argv[2])
+real_locked = crud.locked
+
+def tasks_locked(*paths):
+    # tasks.yaml を握った直後に、相手（CLI の time stop）と足並みを揃える
+    ctx = real_locked(*paths)
+
+    class Wrap:
+        def __enter__(self):
+            ctx.__enter__()
+            signal.touch()
+            deadline = time.time() + 10
+            while not go.exists() and time.time() < deadline:
+                time.sleep(0.01)
+        def __exit__(self, *a):
+            return ctx.__exit__(*a)
+
+    return Wrap()
+
+crud.locked = tasks_locked
+uc = get_use_case()
+with uc.guarded(None):
+    uc.complete_task(1, project=None)
+"""
+
+_CLI_STOP = """
+import sys, time
+from pathlib import Path
+from task_cli.cli.deps import get_time_tracking_use_case
+
+signal, go = Path(sys.argv[1]), Path(sys.argv[2])
+tt = get_time_tracking_use_case()
+with tt.timer_guard():
+    signal.touch()
+    deadline = time.time() + 10
+    while not go.exists() and time.time() < deadline:
+        time.sleep(0.01)
+    tt.stop_timer()
+"""
+
+_PREPARE = """
+from task_cli.cli.deps import get_time_tracking_use_case, get_use_case
+uc = get_use_case()
+uc.add_task("対象タスク", project=None)
+uc.start_task(1, project=None)
+get_time_tracking_use_case().start_timer(duration_seconds=1200, task_id=1, project=None)
+"""
+
+
+class TestLockOrderDoesNotDeadlock:
+    """Web の done と CLI の time stop が同時に走ってもハングしないこと。
+
+    **ロックの取得順は timer.yaml → tasks.yaml。** `stop_timer` はタイマーを
+    読んでから作業セッションをタスク側へ書く。Web の `guarded()` がタスク側を
+    先に握ったまま、内側でタイマーを触ると逆向きになり、両者が互いを待つ。
+    ロックにタイムアウトは無いので永久にハングする。
+
+    実際にこの穴を作っていた（`guarded()` の導入でタスク側のロックの内側に
+    `clear_timer_for_task` が入った）。ドキュメントは「逆向きは作らない」と
+    書いていたが、実装が破っていた。
+    """
+
+    def test_web_done_and_cli_stop_do_not_deadlock(self, tmp_path: Path) -> None:
+        env = {**os.environ, "HOME": str(tmp_path), "PYTHONPATH": str(REPO_ROOT / "src")}
+        subprocess.run([sys.executable, "-c", _PREPARE], env=env, check=True, capture_output=True)
+
+        cli_ready, web_ready, go = (tmp_path / n for n in ("cli_ready", "web_ready", "go"))
+
+        cli = subprocess.Popen(
+            [sys.executable, "-c", _CLI_STOP, str(cli_ready), str(go)], env=env
+        )
+        _wait_for(cli_ready)  # CLI が timer.yaml を握った
+        web = subprocess.Popen(
+            [sys.executable, "-c", _WEB_DONE, str(web_ready), str(go)], env=env
+        )
+        try:
+            _wait_for(web_ready)  # Web が tasks.yaml を握った（timer.yaml は CLI の手の中）
+            go.touch()  # 両方が2つ目のロックを取りに行く
+            assert cli.wait(timeout=15) == 0, "CLI が終わらなかった／失敗した"
+            assert web.wait(timeout=15) == 0, "Web が終わらなかった／失敗した"
+        except subprocess.TimeoutExpired:
+            pytest.fail("デッドロックした（ロックの取得順が timer → tasks になっていない）")
+        finally:
+            for proc in (cli, web):
+                if proc.poll() is None:
+                    proc.kill()
+
+
+def _wait_for(path: Path, timeout: float = 15.0) -> None:
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"{path.name} が現れなかった")

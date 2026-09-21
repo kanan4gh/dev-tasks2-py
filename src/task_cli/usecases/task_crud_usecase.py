@@ -1,6 +1,9 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from task_cli.exceptions import NotFoundError
 from task_cli.models.task import Priority, Task, TaskStatus
 from task_cli.services.global_config_service import GlobalConfigService
 from task_cli.services.task_manager import TaskFilter, TaskManager
@@ -30,6 +33,48 @@ class TaskCrudUseCase:
         # タスクを終える／消すときに実行中タイマーを孤児にしないための後始末。
         # CLI ではなくここに置くのは、MCP からも同じ経路を通す必要があるため。
         self._time_tracking = time_tracking
+
+    @contextmanager
+    def guarded(
+        self, project: ProjectTarget, *also: str | None
+    ) -> Iterator[None]:
+        """`project`（と `also`）の tasks.yaml を1つの排他区間で握る。
+
+        「読んで照合してから書く」を、間に他プロセスが割り込めない1つの
+        区間にするために使う。照合と書き込みを別々のロック区間で行うと、
+        その隙間に CLI や MCP が同じタスクを書き換えられ、**競合検出をすり
+        抜けて黙って上書き（または削除）してしまう**。
+
+        ロックは再入可能なので、この区間の内側で各操作が同じロックを取っても
+        待たされない（#42 の設計）。複数を渡したときは正規化してソート順に
+        取得するため、逆向きの同時取得でもデッドロックしない。
+        """
+        # ロックファイルを置くのにディレクトリが要るので作るが、**その前に
+        # 実在を確かめる**。順序が逆だと、存在しない移動先を指定されただけで
+        # 空のプロジェクトディレクトリが残る（#42 で `move_task` に対して
+        # 直したのと同じ穴を、ここで作り直さない）。
+        for target in (project, *also):
+            self._require_known_project(self._resolve(target))
+        storages = [
+            self._storage_factory(resolve_storage_path(self._resolve(target)))
+            for target in (project, *also)
+        ]
+        for storage in storages:
+            storage.ensure_directory()
+        # **先にタイマーのロックを取る**（timer.yaml → tasks.yaml の順）。この区間の内側で
+        # `done` / `archive` / `delete` / `move` がタイマーを触るので、逆に握ると
+        # `time stop` と同時に走ったときにデッドロックする（実際に再現した）。
+        # タイマーを使わない構成（単体テスト）では何もしない。
+        with self._timer_guard(), locked(*[storage.path for storage in storages]):
+            yield
+
+    @contextmanager
+    def _timer_guard(self) -> Iterator[None]:
+        if self._time_tracking is None:
+            yield
+            return
+        with self._time_tracking.timer_guard():
+            yield
 
     def _resolve(self, project: ProjectTarget) -> str | None:
         """`ProjectTarget` を具体的なプロジェクト名（`None` は Inbox）へ解決する。"""
@@ -63,9 +108,12 @@ class TaskCrudUseCase:
         description: str = "",
         priority: Priority = Priority.MEDIUM,
         due_date: str | None = None,
+        scheduled_date: str | None = None,
         project: ProjectTarget = ACTIVE_PROJECT,
     ) -> Task:
-        return self._get_manager(project).create_task(title, description, priority, due_date)
+        return self._get_manager(project).create_task(
+            title, description, priority, due_date, scheduled_date
+        )
 
     def list_tasks(
         self, filter: TaskFilter | None = None, project: ProjectTarget = ACTIVE_PROJECT
@@ -150,6 +198,27 @@ class TaskCrudUseCase:
     def search_tasks(self, keyword: str, project: ProjectTarget = ACTIVE_PROJECT) -> list[Task]:
         return self._get_manager(project).search_tasks(keyword)
 
+    def _require_known_project(self, name: str | None) -> None:
+        """移動先が実在することを、ディレクトリを作る前に確かめる。
+
+        検証が無いと `task-py move 1 typo` が **rc=0 で「移動しました」と表示し
+        ながら**、`config.yaml` に載っていない `projects/typo/` へタスクを
+        置き去りにする。一覧にも検索にも出てこないので、利用者から見ると
+        タスクが消える。
+
+        `None` は Inbox という実在の保存先なので常に有効。
+        """
+        if name is None:
+            return
+        known = {p.name for p in self._global_config_service.get_all().projects}
+        if name not in known:
+            raise NotFoundError(
+                "移動先のプロジェクトが見つかりません。",
+                cause=f"プロジェクト '{name}' は存在しません。",
+                remedy="task-py project list で有効な名前を確認するか、"
+                "task-py project create で作成してください。",
+            )
+
     def search_all_projects(self, keyword: str) -> dict[str | None, list[Task]]:
         """Inbox と全プロジェクトを横断して検索する。
 
@@ -169,6 +238,11 @@ class TaskCrudUseCase:
         self, id: int, target_project: str | None, project: ProjectTarget = ACTIVE_PROJECT
     ) -> Task:
         src_project = self._resolve(project)
+        self._require_known_project(target_project)
+        if target_project == src_project:
+            # すでにそこに居る。そのまま通すと移動先で採番し直されて ID が変わり、
+            # 開いている詳細画面が 404 になる。「移動しなかった」が正しい結果。
+            return self._get_manager(src_project).get_task(id)
         src_storage = self._storage_factory(resolve_storage_path(src_project))
         dst_storage = self._storage_factory(resolve_storage_path(target_project))
 

@@ -186,3 +186,131 @@ class TestWheelContents:
             "task_web/static/vendor/react.production.min.js",
         ):
             assert expected in names, f"{expected} が wheel に含まれていない"
+
+
+def post(port: int, path: str, body: dict | None = None, if_match: str | None = None):
+    """実プロセスへ JSON を投げる。"""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        headers = {
+            "Host": f"127.0.0.1:{port}",
+            "Content-Type": "application/json",
+        }
+        if if_match is not None:
+            headers["If-Match"] = if_match
+        conn.request("POST", path, body=json.dumps(body or {}).encode("utf-8"), headers=headers)
+        response = conn.getresponse()
+        return response.status, response.read()
+    finally:
+        conn.close()
+
+
+class TestRealProcessWrites:
+    def test_creating_a_task_reaches_the_filesystem(self, server: int, tmp_path: Path) -> None:
+        status, body = post(server, "/api/inbox/tasks", {"title": "実プロセス経由のタスク"})
+
+        assert status == 201, body
+        assert json.loads(body)["task"]["title"] == "実プロセス経由のタスク"
+        saved = (tmp_path / ".task-py/inbox/tasks.yaml").read_text(encoding="utf-8")
+        assert "実プロセス経由のタスク" in saved
+
+    def test_a_write_changes_the_revision(self, server: int) -> None:
+        before = json.loads(request(server, "/api/state")[1])["revision"]
+        post(server, "/api/inbox/tasks", {"title": "X"})
+        after = json.loads(request(server, "/api/state")[1])["revision"]
+        assert after != before
+
+    def test_stale_version_is_rejected(self, server: int, tmp_path: Path) -> None:
+        """別プロセスが先に変えていたら、黙って上書きしない。"""
+        post(server, "/api/inbox/tasks", {"title": "元のタイトル"})
+        _, body = request(server, "/api/inbox/tasks/1")
+        stale = json.loads(body)["task"]["updated_at"]
+
+        # 別プロセス（CLI 相当）が先に編集する
+        subprocess.run(
+            [sys.executable, "-c", _EDIT_TITLE],
+            env={**os.environ, "HOME": str(tmp_path), "PYTHONPATH": str(REPO_ROOT / "src")},
+            check=True,
+            capture_output=True,
+        )
+
+        status, body = post(server, "/api/inbox/tasks/1/start", if_match=stale)
+        assert status == 409, body
+        assert json.loads(body)["current"]["title"] == "別プロセスが変えたタイトル"
+
+    def test_cross_site_write_is_rejected(self, server: int) -> None:
+        conn = http.client.HTTPConnection("127.0.0.1", server, timeout=10)
+        try:
+            conn.request(
+                "POST",
+                "/api/inbox/tasks",
+                body=b'{"title": "X"}',
+                headers={
+                    "Host": f"127.0.0.1:{server}",
+                    "Content-Type": "application/json",
+                    "Sec-Fetch-Site": "cross-site",
+                },
+            )
+            assert conn.getresponse().status == 403
+        finally:
+            conn.close()
+
+    def test_preflight_is_refused(self, server: int) -> None:
+        """OPTIONS を返さない＝クロスオリジンの JSON 書き込みが成立しない。"""
+        conn = http.client.HTTPConnection("127.0.0.1", server, timeout=10)
+        try:
+            conn.request("OPTIONS", "/api/inbox/tasks", headers={"Host": f"127.0.0.1:{server}"})
+            assert conn.getresponse().status == 405
+        finally:
+            conn.close()
+
+
+_EDIT_TITLE = """
+from task_cli.cli.deps import get_use_case
+get_use_case().edit_task(1, title="別プロセスが変えたタイトル", project=None)
+"""
+
+
+class TestDataLossRegressions:
+    """実 CLI で、修正前に壊れていた手順をなぞる。
+
+    どちらも rc=0 で成功を報告しながらユーザーのデータを失わせていた。
+    """
+
+    def run_cli(self, home: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "task_cli.cli.main", *args],
+            env={**os.environ, "HOME": str(home), "PYTHONPATH": str(REPO_ROOT / "src")},
+            capture_output=True,
+            text=True,
+        )
+
+    def test_a_bad_date_does_not_brick_the_project(self, tmp_path: Path) -> None:
+        """`edit --due bogus` のあとも、ほかの操作が全部できること。
+
+        修正前: rc=0 で「更新しました」と表示し `due_date: bogus` を保存。
+        以後 list / show / add がすべてトレースバックで落ちていた。
+        """
+        self.run_cli(tmp_path, "add", "被害者タスク")
+
+        edited = self.run_cli(tmp_path, "edit", "1", "--due", "bogus")
+        assert edited.returncode != 0
+        assert "Traceback" not in edited.stdout + edited.stderr
+        assert "YYYY-MM-DD" in edited.stdout + edited.stderr
+
+        listed = self.run_cli(tmp_path, "list")
+        assert listed.returncode == 0, listed.stdout + listed.stderr
+        assert "被害者タスク" in listed.stdout
+        assert self.run_cli(tmp_path, "add", "あとから足すタスク").returncode == 0
+
+    def test_moving_to_an_unknown_project_does_not_hide_the_task(self, tmp_path: Path) -> None:
+        """修正前: rc=0 で「移動しました」と表示し、一覧から消えていた。"""
+        self.run_cli(tmp_path, "add", "移動されるはずだったタスク")
+
+        moved = self.run_cli(tmp_path, "move", "1", "typo-project")
+        assert moved.returncode != 0
+        assert "Traceback" not in moved.stdout + moved.stderr
+
+        assert not (tmp_path / ".task-py/projects/typo-project").exists()
+        listed = self.run_cli(tmp_path, "list", "--all")
+        assert "移動されるはずだったタスク" in listed.stdout

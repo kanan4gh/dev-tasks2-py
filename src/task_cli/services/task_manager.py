@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
-from task_cli.exceptions import AppError
+from pydantic import ValidationError
+
+from task_cli.exceptions import AppError, NotFoundError, StateConflictError
 from task_cli.models.task import Priority, Task, TaskStatus
 from task_cli.models.time import WorkSession
 from task_cli.storage.file_storage import FileStorage
@@ -17,6 +19,63 @@ class TaskFilter:
     sort: Literal["id", "priority", "due_date", "created_at"] = "id"
 
 
+class InvalidTaskData(AppError):
+    """タスクの値が不正で保存できない。
+
+    呼び出し側（CLI / MCP / Web）が「見つからない」と区別できるよう、
+    `AppError` のサブクラスにしてある。Web 層はこれを 400 に写す
+    （`NotFoundError` は 404、`StateConflictError` は 409。どれにも当たらない
+    素の `AppError` は 500 になる）。
+    """
+
+
+_FIELD_LABELS = {
+    "title": "タイトル",
+    "due_date": "期限",
+    "scheduled_date": "解禁日",
+    "priority": "優先度",
+    "status": "ステータス",
+    "description": "説明",
+}
+
+_FIELD_REMEDIES = {
+    "title": "1〜200文字で指定してください。",
+    "due_date": "YYYY-MM-DD の形式で指定してください（例: 2026-12-31）。",
+    "scheduled_date": "YYYY-MM-DD の形式で指定してください（例: 2026-12-31）。",
+}
+
+
+def _validated(task: Task) -> Task:
+    """保存する直前に `Task` として検証し直す。
+
+    **`model_copy(update=...)` は pydantic v2 では再バリデーションしない。**
+    そのため編集経路（`update_task`）ではフィールドバリデータが一切効かず、
+    `due_date: bogus` のような値がそのまま YAML に書き込まれていた。書き込まれた
+    あとは `load()` の `Task.model_validate` が落ちるため、**そのプロジェクトの
+    タスクが全部読めなくなる**（`list` も `show` も `add` も落ちる）。手で YAML を
+    直す以外に復旧手段がない。
+
+    保存**前**に弾くのが肝である。保存後に気づいても遅い。
+    """
+    try:
+        return Task.model_validate(task.model_dump())
+    except ValidationError as e:
+        raise _invalid_task_data(e) from e
+
+
+def _invalid_task_data(error: ValidationError) -> InvalidTaskData:
+    """pydantic の英文ではなく、どの項目が何を期待しているかを日本語で出す。"""
+    first = error.errors()[0]
+    field = str(first["loc"][0]) if first["loc"] else ""
+    label = _FIELD_LABELS.get(field, field or "入力値")
+    given = first.get("input")
+    return InvalidTaskData(
+        f"{label}の値が正しくありません。",
+        cause=f"{label}に {given!r} が指定されました。",
+        remedy=_FIELD_REMEDIES.get(field, "入力した値を確認してください。"),
+    )
+
+
 class TaskManager:
     def __init__(self, storage: FileStorage) -> None:
         self._storage = storage
@@ -27,16 +86,23 @@ class TaskManager:
         description: str = "",
         priority: Priority = Priority.MEDIUM,
         due_date: str | None = None,
+        scheduled_date: str | None = None,
     ) -> Task:
         with self._storage.transaction():
             tasks = self._storage.load()
-            task = Task(
-                id=self._next_id(tasks),
-                title=title,
-                description=description,
-                priority=priority,
-                due_date=due_date,
-            )
+            try:
+                task = Task(
+                    id=self._next_id(tasks),
+                    title=title,
+                    description=description,
+                    priority=priority,
+                    due_date=due_date,
+                    scheduled_date=scheduled_date,
+                )
+            except ValidationError as e:
+                # 生の ValidationError を入口まで通すと、CLI も MCP も
+                # トレースバックを出してしまう。
+                raise _invalid_task_data(e) from e
             tasks.append(task)
             self._storage.save(tasks)
         return task
@@ -59,7 +125,7 @@ class TaskManager:
         for task in self._storage.load():
             if task.id == id:
                 return task
-        raise AppError(
+        raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
             remedy="task list で有効なIDを確認してください。",
@@ -70,13 +136,15 @@ class TaskManager:
             tasks = self._storage.load()
             for i, task in enumerate(tasks):
                 if task.id == id:
-                    updated = task.model_copy(
-                        update={**kwargs, "updated_at": datetime.now(timezone.utc)}
+                    updated = _validated(
+                        task.model_copy(
+                            update={**kwargs, "updated_at": datetime.now(timezone.utc)}
+                        )
                     )
                     tasks[i] = updated
                     self._storage.save(tasks)
                     return updated
-        raise AppError(
+        raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
             remedy="task list で有効なIDを確認してください。",
@@ -99,7 +167,7 @@ class TaskManager:
                     tasks[i] = updated
                     self._storage.save(tasks)
                     return updated
-        raise AppError(
+        raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
             remedy="task list で有効なIDを確認してください。",
@@ -113,7 +181,7 @@ class TaskManager:
                     tasks.pop(i)
                     self._storage.save(tasks)
                     return
-        raise AppError(
+        raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
             remedy="task list で有効なIDを確認してください。",
@@ -153,7 +221,7 @@ class TaskManager:
     def start_task(self, id: int) -> Task:
         task = self.get_task(id)
         if not task.can_transition_to(TaskStatus.IN_PROGRESS):
-            raise AppError(
+            raise StateConflictError(
                 "このタスクは開始できません。",
                 cause=f"{task.status.value} のタスクは in_progress に変更できません。",
                 remedy="タスクのステータスを確認してください。",
@@ -161,7 +229,7 @@ class TaskManager:
         if task.scheduled_date is not None:
             today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
             if task.scheduled_date > today:
-                raise AppError(
+                raise StateConflictError(
                     "このタスクはまだ解禁されていません。",
                     cause=f"scheduled_date ({task.scheduled_date}) が未来のため着手できません。",
                     remedy=f"解禁日 ({task.scheduled_date}) 以降に start を実行してください。",
@@ -171,7 +239,7 @@ class TaskManager:
     def complete_task(self, id: int) -> Task:
         task = self.get_task(id)
         if not task.can_transition_to(TaskStatus.COMPLETED):
-            raise AppError(
+            raise StateConflictError(
                 "このタスクは完了できません。",
                 cause=f"{task.status.value} のタスクは completed に変更できません。",
                 remedy="task start <id> でタスクを開始してから完了してください。",
@@ -181,7 +249,7 @@ class TaskManager:
     def archive_task(self, id: int) -> Task:
         task = self.get_task(id)
         if not task.can_transition_to(TaskStatus.ARCHIVED):
-            raise AppError(
+            raise StateConflictError(
                 "このタスクはアーカイブできません。",
                 cause=f"{task.status.value} のタスクは archived に変更できません。",
                 remedy="in_progress のタスクは先に完了させてください。",

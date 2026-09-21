@@ -313,7 +313,7 @@ class TestTaskManagerWorkSessions:
 
     def test_sessions_survive_move(self, tmp_path: Path) -> None:
         """move で ID が振り直されてもセッションが一緒に移ること。"""
-        uc = make_use_case(tmp_path, active_project=None)
+        uc = make_use_case_with_projects(tmp_path, active_project=None, project_names=["proj-a"])
         uc.add_task("タスク")
         uc._get_manager().append_work_session(1, make_session(1200))  # pyright: ignore[reportPrivateUsage]
         moved = uc.move_task(1, "proj-a")
@@ -416,7 +416,9 @@ class TestTaskCrudUseCase:
 
 class TestMoveTask:
     def test_move_to_another_project(self, tmp_path: Path) -> None:
-        uc = make_use_case(tmp_path, active_project="src-proj")
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="src-proj", project_names=["src-proj", "dst-proj"]
+        )
         task = uc.add_task("移動タスク")
         moved = uc.move_task(task.id, "dst-proj")
         assert moved.title == "移動タスク"
@@ -424,16 +426,44 @@ class TestMoveTask:
         assert uc.list_tasks() == []
 
     def test_move_to_inbox(self, tmp_path: Path) -> None:
-        uc = make_use_case(tmp_path, active_project="myapp")
+        uc = make_use_case_with_projects(
+            tmp_path, active_project="myapp", project_names=["myapp"]
+        )
         task = uc.add_task("Inboxへ移動")
         moved = uc.move_task(task.id, None)
         assert moved.title == "Inboxへ移動"
         assert uc.list_tasks() == []
 
     def test_move_nonexistent_id_raises(self, tmp_path: Path) -> None:
-        uc = make_use_case(tmp_path)
+        uc = make_use_case_with_projects(
+            tmp_path, active_project=None, project_names=["other-proj"]
+        )
         with pytest.raises(AppError):
             uc.move_task(999, "other-proj")
+
+    def test_move_to_unknown_project_is_rejected(self, tmp_path: Path) -> None:
+        """存在しないプロジェクトへの move を成功させない。
+
+        検証が無いと rc=0 で「移動しました」と表示しながら、`config.yaml` に
+        載っていないディレクトリへタスクを置き去りにする。一覧にも検索にも
+        出てこないので、利用者から見るとタスクが消える。
+        """
+        home = tmp_path / "home"
+        config_storage = GlobalConfigStorage(tmp_path / "config.yaml")
+        config_storage.save(GlobalConfig(active_project=None))
+        uc = TaskCrudUseCase(
+            GlobalConfigService(config_storage),
+            lambda path: FileStorage(home / path.parent.name / path.name),
+        )
+        uc.add_task("移動されるはずだったタスク")
+
+        with pytest.raises(AppError):
+            uc.move_task(1, "typo-project")
+
+        # ディレクトリを作る前に弾いている
+        assert not (home / "typo-project").exists()
+        # タスクは元の場所に残っている
+        assert [t.title for t in uc.list_tasks()] == ["移動されるはずだったタスク"]
 
 
 def make_use_case_with_projects(
@@ -683,3 +713,77 @@ class TestMoveDoesNotCreateStrayDirectories:
             uc.move_task(999, "typo-project")
 
         assert not (home / "typo-project").exists()
+
+
+class TestWritesAreValidatedBeforeSaving:
+    """保存する前に値を検証すること。
+
+    `model_copy(update=...)` は pydantic v2 では再バリデーションしないため、
+    編集経路ではフィールドバリデータが一切効いていなかった。`due_date: bogus`
+    が YAML に書き込まれると、以後 `load()` の `Task.model_validate` が落ちて
+    **そのプロジェクトのタスクが全部読めなくなる**（list も show も add も）。
+    手で YAML を直す以外に復旧手段がない。
+    """
+
+    def test_bad_due_date_is_rejected_on_edit(self, tmp_path: Path) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("被害者タスク")
+
+        with pytest.raises(AppError) as excinfo:
+            manager.update_task(1, due_date="bogus")
+
+        error = excinfo.value
+        assert "期限" in str(error)
+        assert "bogus" in error.cause
+        assert "YYYY-MM-DD" in error.remedy
+
+    def test_the_file_stays_readable_after_a_rejected_edit(self, tmp_path: Path) -> None:
+        """弾いたあと、ほかの操作が全部できること（これが壊れていた）。"""
+        manager = make_manager(tmp_path)
+        manager.create_task("被害者タスク")
+        manager.create_task("巻き添えタスク")
+
+        with pytest.raises(AppError):
+            manager.update_task(1, due_date="bogus")
+
+        assert [t.title for t in manager.list_tasks()] == ["被害者タスク", "巻き添えタスク"]
+        assert manager.get_task(1).due_date is None
+        assert manager.create_task("あとから足すタスク").id == 3
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"due_date": "2026-13-01"},
+            {"scheduled_date": "bogus"},
+            {"title": ""},
+            {"title": "x" * 201},
+        ],
+    )
+    def test_invalid_values_are_rejected(self, tmp_path: Path, kwargs: dict) -> None:
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        with pytest.raises(AppError):
+            manager.update_task(1, **kwargs)
+
+    def test_valid_values_still_pass(self, tmp_path: Path) -> None:
+        """正常系の挙動は変わらない。"""
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        updated = manager.update_task(1, due_date="2026-12-31", title="新しいタイトル")
+        assert updated.due_date == "2026-12-31"
+        assert updated.title == "新しいタイトル"
+
+    def test_create_reports_invalid_values_as_app_error(self, tmp_path: Path) -> None:
+        """生の ValidationError を入口まで通さない（CLI も MCP もトレースバックになる）。"""
+        manager = make_manager(tmp_path)
+        with pytest.raises(AppError):
+            manager.create_task("", due_date=None)
+        with pytest.raises(AppError):
+            manager.create_task("タスク", due_date="bogus")
+
+    def test_work_sessions_are_not_blocked(self, tmp_path: Path) -> None:
+        """作業セッションの追記は検証を通る（既に検証済みの値しか入らない）。"""
+        manager = make_manager(tmp_path)
+        manager.create_task("タスク")
+        updated = manager.append_work_session(1, make_session(600))
+        assert updated.total_worked_seconds == 600

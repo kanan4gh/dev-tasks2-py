@@ -1,4 +1,6 @@
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -116,6 +118,23 @@ class TimeTrackingUseCase:
 
     def status(self) -> TimerState | None:
         return self._timer_service.get_active()
+
+    @contextmanager
+    def timer_guard(self) -> Iterator[None]:
+        """`timer.yaml` のロックだけを握る。
+
+        **ロックの取得順は timer.yaml → tasks.yaml。** `stop_timer` はタイマーを
+        読んでから作業セッションをタスク側へ書くため、この向きに入れ子になる。
+        タスク側のロックを先に握った呼び出し元が、その内側でタイマーを触ると
+        **逆向きになり、`time stop` と同時に走ったときにデッドロックする**
+        （ロックにタイムアウトは無い）。
+
+        そのため、タスクを排他区間に入れる呼び出し元（`TaskCrudUseCase.guarded`）は、
+        タイマーを触るかどうかに関わらず、**先にこれを取る**。再入可能なので、
+        内側で `clear_timer_for_task` などが同じロックを取っても待たされない。
+        """
+        with self._timer_service.transaction():
+            yield
 
     def stop_timer(
         self,

@@ -15,7 +15,7 @@ dev-tasks2-py/
 ├── src/
 │   ├── task_cli/                         # CLIと共有ドメインのパッケージ
 │   │   ├── __init__.py
-│   │   ├── exceptions.py                 # AppError
+│   │   ├── exceptions.py                 # AppError / NotFoundError / StateConflictError
 │   │   ├── duration.py                   # CLI・MCP共通の時間変換
 │   │   ├── cli/                          # CLI入口、表示、依存組み立て
 │   │   │   ├── __init__.py
@@ -66,7 +66,9 @@ dev-tasks2-py/
 │       ├── __init__.py
 │       ├── __main__.py
 │       ├── server.py                     # Starlette アプリの組み立てと uvicorn 起動
-│       ├── api.py                        # 読み取り専用の JSON エンドポイント
+│       ├── api.py                        # JSON エンドポイント（読み取りと1件ずつの書き込み）
+│       ├── csrf.py                       # 書き込みの出自の検査
+│       ├── versions.py                   # If-Match による版の照合
 │       ├── serializers.py                # モデル → dict（派生値の付与）
 │       ├── watcher.py                    # 監視対象の mtime からリビジョンを作る
 │       ├── events.py                     # SSE
@@ -154,13 +156,15 @@ MCPはCLIコマンドや `renderer.py` を経由せず、共有層を直接呼�
 
 ### `src/task_web/` — Web入口
 
-**責務**: HTTPリクエストを共有層の呼び出しへ変換し、結果をJSONで返す。ブラウザ向けの静的ファイルを配信する。**読み取りのみ**。
+**責務**: HTTPリクエストを共有層の呼び出しへ変換し、結果をJSONで返す。ブラウザ向けの静的ファイルを配信する。読み取りと、1件ずつの書き込み（一括操作と undo は持たない）。
 
 | ファイル | 責務 |
 |---|---|
 | `__main__.py` | uvicornでサーバーを起動する |
 | `server.py` | Starletteアプリの組み立て（ルーティング・`Host`検証・静的配信）と起動 |
-| `api.py` | 読み取り専用のJSONエンドポイント。`AppError` をHTTPへ写す |
+| `api.py` | JSONエンドポイント。`AppError` をクラスごとにHTTPの状態コードへ写す |
+| `csrf.py` | 書き込みの出自の検査（JSON必須・`Sec-Fetch-Site`・`Origin`） |
+| `versions.py` | `If-Match` の解釈と、いま保存されている版との照合 |
 | `serializers.py` | pydanticモデル → dict。`model_dump()` に出ない派生値をここで足す |
 | `watcher.py` | 監視対象ファイルの mtime とサイズからリビジョン値を作る |
 | `events.py` | リビジョンの変化をSSEで流す |
@@ -168,7 +172,7 @@ MCPはCLIコマンドや `renderer.py` を経由せず、共有層を直接呼�
 
 MCPと同じく、CLIコマンドや `renderer.py` を経由せず共有層を直接呼ぶ入口である。本番依存の組み立てには `task_cli/cli/deps.py` を再利用する。
 
-**読み取り専用は2重に担保する**: ルーティングに `GET` しか登録しない（書き込みメソッドは405）ことに加え、**ディスクへ書く経路を呼ばない**（`DailyService.list_today()` は既定で今日のログを書き足すため `ensure=False` を渡す）。405を返すだけでは読み取り専用を名乗れない。
+**読み取りは本当に読み取りだけにする**: `GET` の中で何を呼ぶかは別の問題で、`DailyService.list_today()` は既定で今日のログを書き足すため `ensure=False` を渡す。**書き込みは出自と版を検査する**: `csrf.py` と `versions.py` を通り、照合から書き込みまでを `TaskCrudUseCase.guarded()` の1つの排他区間で行う。
 
 ### `src/task_cli/models/` — データモデル
 
@@ -236,7 +240,7 @@ usecaseはmodel、service、storage、共有基盤モジュールと別のusecas
 
 ### パッケージ直下の共有基盤モジュール
 
-- `exceptions.py`: 入口間で共有する `AppError`
+- `exceptions.py`: 入口間で共有する `AppError` と、その用途別のサブクラス（`NotFoundError`=見つからない・`StateConflictError`=いまの状態ではできない）。値の不正は `services/task_manager.py` の `InvalidTaskData`
 - `duration.py`: CLIとMCPで共有する時間文字列のパース・整形。`exceptions.py` に依存する
 
 小さく安定し、アプリケーションレイヤーに属さない共通要素だけを置く。汎用化を理由にビジネスロジックを直下へ逃がさない。
