@@ -1,4 +1,5 @@
 import asyncio
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,17 @@ EXPECTED_TOOLS = {
     # observability
     "get_mcp_stats",
 }
+
+
+def test_package_requires_mcp_v1() -> None:
+    """配布時の再解決で互換性のない MCP SDK 2.x が入らないこと。"""
+    pyproject_path = Path(__file__).parents[1] / "pyproject.toml"
+    project = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))["project"]
+    mcp_requirement = next(
+        dependency for dependency in project["dependencies"] if dependency.startswith("mcp[cli]")
+    )
+
+    assert mcp_requirement == "mcp[cli]>=1,<2"
 
 
 def test_all_tools_registered() -> None:
