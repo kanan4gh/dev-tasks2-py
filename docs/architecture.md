@@ -25,7 +25,7 @@
 | pyyaml | latest | YAML 読み書き | js-yaml |
 | rich | latest | カラー出力・テーブル表示 | chalk + cli-table3 |
 | prompt-toolkit | latest | インタラクティブシェル | inquirer |
-| mcp[cli] | latest | MCP サーバー | — |
+| mcp[cli] | >=1,<2 | MCP サーバー | — |
 | starlette | latest | ローカル Web GUI の HTTP 層 | — |
 | uvicorn | latest | ASGI サーバー | — |
 | sse-starlette | latest | Server-Sent Events | — |
@@ -33,6 +33,10 @@
 `starlette` / `uvicorn` / `sse-starlette` は `mcp[cli]` が transitive で導入するため
 **追加インストールは発生しない**。それでも明示宣言しているのは、直接 import している
 以上、上流が依存を落としたときに黙って壊れるのを避けるためである。
+
+`task_mcp` は MCP Python SDK 1.x の `FastMCP` API を使用する。2.x ではこのAPIが
+`MCPServer`へ変更されたため、配布パッケージの依存も `<2` に制約し、`uv tool install` が
+互換性のないメジャーバージョンを解決して起動時に失敗することを防ぐ。
 
 **ブラウザ側（同梱・Python の依存ではない）**
 
