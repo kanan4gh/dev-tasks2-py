@@ -316,7 +316,7 @@ PRは `gh pr create` で作成できる。マージはプロジェクトオー�
 
 リリースする場合は次の順序で進める。
 
-1. `pyproject.toml` の `version` を更新する
+1. フィーチャー PR の中で `pyproject.toml` の `version` を更新し、`uv lock` で `uv.lock` も更新する(add-feature ステップ7。マージ後に更新だけの PR を出さない)
 2. ローカル品質ゲートを通し、PRで `main` へマージする
 3. 関連GitHub Issuesが閉じていることを確認し、未完了ならリリース前に閉じる
 4. マージ済みコミットからGitHub Releaseを作成する

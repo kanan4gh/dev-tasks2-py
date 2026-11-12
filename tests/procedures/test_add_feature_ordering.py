@@ -261,3 +261,58 @@ def test_validator_flags_a_premature_complete_state() -> None:
     text = VALIDATOR.read_text(encoding="utf-8")
     assert "状態が段4より前に`complete`へ変更された痕跡" in text
     assert "乖離として指摘する" in text
+
+
+# --- バージョン更新の紐づけ(Issue #49) ---------------------------------------------------
+# リリース判断(振り返りの表)は判断であって作業ではない。バージョン更新という作業を
+# 振り返りフェーズのチェックボックスとステップ7の手順に紐づけ、同じフィーチャーPRに含める。
+
+AGENTS = ROOT / "AGENTS.md"
+GUIDELINES = ROOT / "docs" / "development-guidelines.md"
+VERSION_ACTION = "バージョン定義を更新する"
+NO_BUMP_ONLY_PR = "マージ後に更新だけのPRを出さない"
+
+
+def test_template_retrospective_phase_has_a_version_update_checkbox() -> None:
+    text = TEMPLATE.read_text(encoding="utf-8")
+    phase = text[text.index("## フェーズ4: 振り返りとドキュメント更新（ステップ7）") :]
+    phase = phase.split("\n---", maxsplit=1)[0]
+    lines = [line for line in phase.splitlines() if line.startswith("- [ ]")]
+    bump = [i for i, line in enumerate(lines) if VERSION_ACTION in line]
+    judge = [i for i, line in enumerate(lines) if "リリース判断を記録" in line]
+    assert len(bump) == 1, "バージョン更新のチェックボックスが1つだけ必要"
+    assert judge, "リリース判断のチェックボックスは残す"
+    # 作業(更新)は判断の記録より前に置く
+    assert bump[0] < judge[0]
+    # 判断と作業は別の行である
+    assert bump[0] != judge[0]
+
+
+def test_step7_links_the_version_update_before_complete_in_both_files() -> None:
+    for path in workflow_files():
+        step7 = step_section(path, "7")
+        assert VERSION_ACTION in step7, f"{path.name}: ステップ7にバージョン更新の手順が必要"
+        assert NO_BUMP_ONLY_PR in step7, f"{path.name}: 更新だけのPRを出さない旨が必要"
+        # 最終ゲート後に変更が入らないよう、complete への遷移より前に置く
+        assert_in_order(step7, ("リリース判断", VERSION_ACTION, "steering_state.py complete"))
+
+
+def test_version_update_step_text_is_identical_in_neutral_and_adapter() -> None:
+    """中立手順書とアダプタは同じ行を持つ(順序契約と同様に、文言のずれを許さない)。"""
+    lines = []
+    for path in workflow_files():
+        step7 = step_section(path, "7")
+        lines.append([line.split(". ", 1)[-1] for line in step7.splitlines() if VERSION_ACTION in line])
+    assert lines[0] and lines[0] == lines[1]
+
+
+def test_release_docs_say_the_bump_goes_into_the_feature_pr() -> None:
+    agents = AGENTS.read_text(encoding="utf-8")
+    release = agents[agents.index("### リリース") :].split("\n---", maxsplit=1)[0]
+    assert "フィーチャー PR に含める" in release
+    assert "add-feature ステップ7" in release
+
+    guidelines = GUIDELINES.read_text(encoding="utf-8")
+    versioning = guidelines[guidelines.index("## バージョニングとリリース") :].split("\n---", maxsplit=1)[0]
+    assert "フィーチャー PR" in versioning
+    assert "uv lock" in versioning
