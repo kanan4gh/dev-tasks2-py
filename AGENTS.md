@@ -254,7 +254,7 @@ uv run python3 scripts/local_quality_gate.py       # 必須の単一ローカル
 - `gh pr create` でフィーチャーブランチからPRを作成し、mainにマージ
 
 ### リリース
-- バージョンは `pyproject.toml` の `version` フィールドを更新する
+- バージョンは `pyproject.toml` の `version` フィールドを更新する(`uv lock` で `uv.lock` も更新する)。**リリース対象の機能は、そのフィーチャー PR に含める**(add-feature ステップ7)。マージ後に更新だけの PR を出さない
 - `gh release create` でGitHub Releaseを作成
 - リリース前に関連 GitHub Issues をクローズする（`gh issue close <番号>`）
 
