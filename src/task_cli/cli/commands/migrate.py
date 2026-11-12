@@ -1,5 +1,4 @@
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from task_cli.backup import backup_label, create_backup
 from task_cli.exceptions import AppError
 from task_cli.models.daily import DailyLog, DailyLogEntry, Routine
 from task_cli.models.task import GlobalConfig, Priority, ProjectEntry, Task, TaskStatus
@@ -136,8 +136,8 @@ def migrate(
     if _py_has_data() and not force:
         confirmed = typer.confirm(
             f"\n{_PY_DIR} に既存データがあります。\n"
-            f"上書きすると現在の task-py のタスクはすべて失われます\n"
-            f"（バックアップは {_BACKUP_DIR} に保存されます）。\n"
+            f"上書きすると現在の task-py のタスクはすべて置き換わります。\n"
+            f"{backup_label(_BACKUP_DIR)}\n"
             f"続行しますか？"
         )
         if not confirmed:
@@ -146,10 +146,8 @@ def migrate(
 
     # 既存データをバックアップ
     if _py_has_data():
-        if _BACKUP_DIR.exists():
-            shutil.rmtree(_BACKUP_DIR)
-        shutil.copytree(_PY_DIR, _BACKUP_DIR)
-        console.print(f"[dim]既存データを {_BACKUP_DIR} にバックアップしました。[/dim]")
+        backup_path = create_backup(_PY_DIR, _BACKUP_DIR)
+        console.print(f"[dim]既存データを {backup_path} にバックアップしました。[/dim]")
 
     # 書き込み
     _write_yaml(_PY_DIR / "config.yaml", config.model_dump(mode="json"))

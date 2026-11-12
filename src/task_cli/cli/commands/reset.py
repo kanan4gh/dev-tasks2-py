@@ -4,6 +4,8 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from task_cli.backup import backup_label, create_backup
+
 _PY_DIR = Path("~/.task-py").expanduser()
 _BACKUP_DIR = Path("~/.task-py.backup").expanduser()
 
@@ -18,17 +20,15 @@ def reset() -> None:
 
     confirmed = typer.confirm(
         f"\n{_PY_DIR} のすべてのデータ（タスク・プロジェクト・デイリー）を削除します。\n"
-        f"この操作は元に戻せません（バックアップは {_BACKUP_DIR} に保存されます）。\n"
+        f"この操作は元に戻せません。{backup_label(_BACKUP_DIR)}\n"
         f"続行しますか？"
     )
     if not confirmed:
         console.print("[yellow]リセットをキャンセルしました。[/yellow]")
         raise typer.Exit()
 
-    if _BACKUP_DIR.exists():
-        shutil.rmtree(_BACKUP_DIR)
-    shutil.copytree(_PY_DIR, _BACKUP_DIR)
-    console.print(f"[dim]データを {_BACKUP_DIR} にバックアップしました。[/dim]")
+    backup_path = create_backup(_PY_DIR, _BACKUP_DIR)
+    console.print(f"[dim]データを {backup_path} にバックアップしました。[/dim]")
 
     shutil.rmtree(_PY_DIR)
     console.print(f"[green]{_PY_DIR} のデータをすべて削除しました。[/green]")
