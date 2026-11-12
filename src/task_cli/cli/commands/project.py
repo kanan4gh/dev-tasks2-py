@@ -2,6 +2,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.table import Table
 from rich.text import Text
 
 from task_cli.cli.deps import get_global_config_service
@@ -50,22 +51,27 @@ def list_projects() -> None:
     projects = svc.list_projects()
     active = config_svc.get_active_project()
 
+    # 桁揃えは Table の列幅に任せる（名前の長さに制限がないため固定幅にしない）
+    table = Table(box=None, padding=(0, 1), show_header=False)
+    table.add_column(no_wrap=True)  # アクティブマーカー
+    table.add_column(overflow="fold")  # 名前（省略せず、狭い端末では折り返す。project use に必要なため）
+    table.add_column(no_wrap=True)  # タスク数
+
     for p in projects:
         total, in_prog = _count_tasks(p.name)
-        marker = Text("* ", style="green bold") if p.name == active else Text("  ")
+        is_active = p.name == active
         task_label = "task" if total == 1 else "tasks"
-        line = Text()
-        line.append_text(marker)
-        name_style = "green bold" if p.name == active else ""
-        line.append(f"{p.name:<20}", style=name_style)
-        line.append(f" {total} {task_label} ({in_prog} in_progress)")
-        console.print(line)
+        table.add_row(
+            Text("*", style="green bold") if is_active else Text(" "),
+            Text(p.name, style="green bold" if is_active else ""),
+            f"{total} {task_label} ({in_prog} in_progress)",
+        )
 
-    console.print("─" * 40)
     inbox_path = Path("~/.task-py/inbox/tasks.yaml").expanduser()
     inbox_total = len(FileStorage(inbox_path).load()) if inbox_path.exists() else 0
     inbox_label = "task" if inbox_total == 1 else "tasks"
-    console.print(f"  {'[Inbox]':<20} {inbox_total} {inbox_label}")
+    table.add_row(Text(" "), Text("[Inbox]", style="dim"), f"{inbox_total} {inbox_label}")
+    console.print(table)
 
 
 @project_app.command("use")

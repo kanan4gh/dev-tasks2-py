@@ -9,6 +9,8 @@ dependencies = [
     "rich",
     "prompt-toolkit",
     "mcp[cli]>=1,<2",
+    # --version の更新判定（task_cli.cli.main）で直接 import する。
+    "packaging",
     # ローカル Web GUI（task_web）で直接使う。いずれも mcp[cli] が transitive で
     # 入れているため追加インストールは発生しないが、直接 import する以上ここに
     # 明示する（上流が依存を落としたときに黙って壊れないように）。

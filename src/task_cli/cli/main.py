@@ -5,6 +5,7 @@ from importlib.metadata import version as pkg_version
 from typing import Annotated, Optional
 
 import typer
+from packaging.version import InvalidVersion, Version
 
 from task_cli.cli.commands.add import add
 from task_cli.cli.commands.migrate import migrate
@@ -65,13 +66,21 @@ def _fetch_latest_version() -> Optional[str]:
         return None
 
 
+def _is_newer(latest: str, current: str) -> bool:
+    """latest が current より新しいときだけ True。解釈できないバージョンは False（案内しない）。"""
+    try:
+        return Version(latest) > Version(current)
+    except InvalidVersion:
+        return False
+
+
 def _version_callback(value: bool) -> None:
     if not value:
         return
     current = pkg_version("dev-tasks2-py")
     typer.echo(f"task-py version {current}")
     latest = _fetch_latest_version()
-    if latest and latest != current:
+    if latest and _is_newer(latest, current):
         typer.echo(
             f"\n新しいバージョン {latest} が利用可能です。\n"
             f"アップデートするには以下を実行してください:\n"
