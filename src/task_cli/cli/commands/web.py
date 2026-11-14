@@ -11,7 +11,7 @@ def web(
     port: int = typer.Option(8765, "--port", "-p", help="待ち受けるポート"),
     no_open: bool = typer.Option(False, "--no-open", help="ブラウザを自動で開かない"),
 ) -> None:
-    """ローカル Web GUI を起動します（読み取り専用）。
+    """ローカル Web GUI を起動します（127.0.0.1 のみ待ち受け）。
 
     待ち受けは 127.0.0.1 に固定する。`--host` を用意しないのは、外部から届く
     アドレスに bind できてしまうと、認証も CSRF 対策も持たないこの面が

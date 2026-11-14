@@ -7,6 +7,7 @@ import yaml
 
 from task_cli.models.daily import DailyLog
 from task_cli.storage.atomic import locked, write_atomic
+from task_cli.storage.yaml_io import read_yaml, validated_list
 
 _DEFAULT_PATH = Path("~/.task-py/daily/log.yaml")
 _MAX_DAYS = 30
@@ -35,11 +36,10 @@ class DailyLogStorage:
     def load_all(self) -> list[DailyLog]:
         if not self._path.exists():
             return []
-        with self._path.open(encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        data = read_yaml(self._path, list)
         if not data:
             return []
-        return [DailyLog.model_validate(item) for item in data]
+        return validated_list(self._path, DailyLog, data)
 
     def load_today(self, today: str) -> DailyLog:
         for log in self.load_all():

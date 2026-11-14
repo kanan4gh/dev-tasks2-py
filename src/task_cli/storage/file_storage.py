@@ -8,6 +8,7 @@ import yaml
 
 from task_cli.models.task import Task
 from task_cli.storage.atomic import locked, write_atomic
+from task_cli.storage.yaml_io import read_yaml, validated_list
 
 
 class FileStorage:
@@ -36,11 +37,10 @@ class FileStorage:
     def load(self) -> list[Task]:
         if not self._path.exists():
             return []
-        with self._path.open(encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        data = read_yaml(self._path, list)
         if not data:
             return []
-        return [Task.model_validate(item) for item in data]
+        return validated_list(self._path, Task, data)
 
     def save(self, tasks: list[Task]) -> None:
         with self.transaction():

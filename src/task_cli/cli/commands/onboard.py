@@ -3,6 +3,7 @@ from rich.markup import escape
 from rich.rule import Rule
 
 from task_cli.cli.deps import get_global_config_service, get_use_case
+from task_cli.cli.renderer import handle_app_errors
 from task_cli.models.task import TaskStatus
 from task_cli.services.daily_service import DailyService
 from task_cli.services.task_manager import TaskFilter
@@ -10,6 +11,7 @@ from task_cli.services.task_manager import TaskFilter
 console = Console()
 
 
+@handle_app_errors
 def overview() -> None:
     """現在の状況を要約表示します。"""
     svc = get_global_config_service()
@@ -30,7 +32,7 @@ def overview() -> None:
         for routine, _ in pending_routines:
             rid = escape(f"[r{routine.id}]")
             console.print(f"  ○ {rid} {escape(routine.title)}")
-        console.print("  [dim]💡 done r<ID> で完了[/dim]")
+        console.print(f"  [dim]💡 task-py daily done <ID> で完了（{escape("[r1]")} の数字が ID）[/dim]")
 
     # 着手すべきタスク最大3件（アクティブプロジェクトから）
     in_progress = uc.list_tasks(TaskFilter(status=[TaskStatus.IN_PROGRESS]))
@@ -43,7 +45,7 @@ def overview() -> None:
             status_tag = escape(f"[{task.status.value}]")
             task_id = f"{task.id}" if active else f"0-{task.id}"
             console.print(f"  {i}. {status_tag} {task_id}  {escape(task.title)}  ({proj_label})")
-        console.print("  [dim]💡 start <ID> でタスクを開始、done <ID> で完了[/dim]")
+        console.print("  [dim]💡 task-py start <ID> でタスクを開始、task-py done <ID> で完了[/dim]")
 
     # 全プロジェクト横断・open + in_progress のみ
     active_filter = TaskFilter(status=[TaskStatus.OPEN, TaskStatus.IN_PROGRESS])

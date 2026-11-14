@@ -7,6 +7,7 @@ import yaml
 
 from task_cli.models.daily import Routine
 from task_cli.storage.atomic import locked, write_atomic
+from task_cli.storage.yaml_io import read_yaml, validated_list
 
 _DEFAULT_PATH = Path("~/.task-py/daily/routines.yaml")
 
@@ -34,11 +35,10 @@ class RoutineStorage:
     def load(self) -> list[Routine]:
         if not self._path.exists():
             return []
-        with self._path.open(encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        data = read_yaml(self._path, list)
         if not data:
             return []
-        return [Routine.model_validate(item) for item in data]
+        return validated_list(self._path, Routine, data)
 
     def save(self, routines: list[Routine]) -> None:
         with self.transaction():

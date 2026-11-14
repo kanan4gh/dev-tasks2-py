@@ -4,7 +4,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from task_cli.cli.renderer import render_error, render_success
+from task_cli.cli.renderer import handle_app_errors, render_error, render_success
 from task_cli.exceptions import AppError
 from task_cli.services.daily_service import DailyService
 
@@ -31,6 +31,7 @@ def add(
 
 
 @daily_app.command("list")
+@handle_app_errors
 def list_routines(
     all_status: bool = typer.Option(False, "--all", help="pause中も含めて表示"),
 ) -> None:
@@ -113,6 +114,7 @@ def delete(
 
 
 @daily_app.command("stats")
+@handle_app_errors
 def stats() -> None:
     """直近7日の達成率を表示します。"""
     svc = _get_service()

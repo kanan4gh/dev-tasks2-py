@@ -491,7 +491,7 @@ class FileStorage:
 
 ### RoutineStorage / DailyLogStorage / TimerStorage (`src/task_cli/storage/`)
 
-**責務**: `~/.task-py/daily/routines.yaml` / `~/.task-py/daily/log.yaml` / `~/.task-py/timer.yaml` の読み書き。いずれも `FileStorage` と同じく `transaction()` で排他し、書き込みは `storage/atomic.py` の `write_atomic`（一時ファイル → `fsync` → `os.replace`）を通る。`DailyLogStorage` は保存時に直近 30 日より古いログを捨てる
+**責務**: `~/.task-py/daily/routines.yaml` / `~/.task-py/daily/log.yaml` / `~/.task-py/timer.yaml` の読み書き。いずれも `FileStorage` と同じく `transaction()` で排他し、書き込みは `storage/atomic.py` の `write_atomic`（一時ファイル → `fsync` → `os.replace`）を通る。`DailyLogStorage` は保存時に直近 30 日より古いログを捨てる。読み込みで壊れたファイルを見つけたときは、`RoutineStorage` / `DailyLogStorage` は `StorageReadError`、`TimerStorage` は「動いていない」として継続する（「エラーハンドリング」参照）
 
 ---
 
@@ -855,6 +855,7 @@ class AppError(Exception):
 
 class NotFoundError(AppError): ...       # 対象（タスク・プロジェクト）が存在しない。Web では 404
 class StateConflictError(AppError): ...  # いまの状態ではその操作ができない。Web では 409
+class StorageReadError(AppError): ...    # 保存済みファイルを読み込めない（YAML の構文エラー・値の不正）。Web では 500
 ```
 
 `InvalidTaskData`（`src/task_cli/services/task_manager.py`）は保存前の検証で値が不正なときの `AppError` の派生で、Web では 400。どれにも当たらない素の `AppError` は Web で 500 になる。CLI と MCP は従来どおり `except AppError` で扱う。
@@ -879,8 +880,10 @@ class StateConflictError(AppError): ...  # いまの状態ではその操作が�
 | 解禁日前の開始（`StateConflictError`） | 処理を中断 | `[Error] このタスクはまだ解禁されていません。\n  原因: scheduled_date (2026-12-01) が未来のため着手できません。\n  対処: 解禁日 (2026-12-01) 以降に start を実行してください。` |
 | プロジェクト名の重複・移動先の未登録 | 処理を中断 | `[Error] 同名のプロジェクトが既に存在します。` ほか。移動先が未登録なら `NotFoundError` |
 | 保存先ファイルが存在しない | 空データとして扱い継続（警告は出さない） | — |
-| 保存先ファイルの読み込み失敗（YAML が壊れている等） | **未対応**。例外がそのまま表示される。`.bak` が残っていれば手で戻す | トレースバック |
+| 保存先ファイルの読み込み失敗（保存済みファイルの YAML 構文エラー・値の不正。保存前の入力検証 `InvalidTaskData` とは別） | `StorageReadError` にして処理を中断する。`.bak` は書き込み途中で止まったときだけ残るので、あれば手で戻す。自動復旧はしない。対象と例外は表の下の補足を参照 | `[Error] 保存先ファイルを読み込めません` / 原因（ファイルと、構文エラーなら行・列、値の不正ならフィールド名）/ 対処 |
 | ファイル書き込み失敗 | 一時ファイルを破棄し、本体は無変更のまま例外を伝える（`.bak` からの復元経路も残す） | 例外（ディスク容量・権限など） |
+
+**読み込み失敗の補足**: `StorageReadError` にするのはタスク・ルーティーン・日別ログ・グローバル設定の4つ（`src/task_cli/storage/yaml_io.py` の `read_yaml` / `validated`）。Web では 500 のまま、原因と対処を本文で返す。**タイマー（`timer.yaml`）だけは**壊れていても「動いていない」として扱い、継続する（状態ファイルであり、失ってもデータは壊れず、無関係なコマンドを巻き添えにしないため）。
 
 ---
 

@@ -6,7 +6,7 @@ from rich.table import Table
 from rich.text import Text
 
 from task_cli.cli.deps import get_global_config_service
-from task_cli.cli.renderer import render_error, render_success
+from task_cli.cli.renderer import handle_app_errors, render_error, render_success
 from task_cli.exceptions import AppError
 from task_cli.services.project_service import ProjectService
 from task_cli.storage.file_storage import FileStorage
@@ -44,6 +44,7 @@ def create(
 
 
 @project_app.command("list")
+@handle_app_errors
 def list_projects() -> None:
     """プロジェクト一覧を表示します。"""
     svc = _get_project_service()

@@ -28,7 +28,7 @@ from task_cli.cli.deps import (
     get_time_tracking_use_case,
     get_use_case,
 )
-from task_cli.exceptions import AppError, NotFoundError, StateConflictError
+from task_cli.exceptions import AppError, NotFoundError, StateConflictError, StorageReadError
 from task_cli.models.task import Priority, Task, TaskStatus
 from task_cli.services.daily_service import DailyService
 from task_cli.services.task_manager import InvalidTaskData, TaskFilter
@@ -106,6 +106,9 @@ _STATUS_BY_ERROR: tuple[tuple[type[AppError], int], ...] = (
     (InvalidTaskData, 400),
     (csrf.Forbidden, 403),
     (NotFoundError, 404),
+    # 保存ファイルが壊れている。利用者の操作の誤りではないので 500 のまま、
+    # 原因（ファイルと行・列）と対処は本文で返す。
+    (StorageReadError, 500),
     # 「いまの状態ではできない」（開始できない・完了できない・まだ解禁されて
     # いない）は、対象が無いこととは別物。404 にすると、クライアントも画面も
     # 「経路かタスクが存在しない」と読んでしまう。

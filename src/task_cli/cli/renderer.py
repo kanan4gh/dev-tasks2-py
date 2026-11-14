@@ -1,4 +1,10 @@
+from collections.abc import Callable
+from functools import wraps
+from typing import ParamSpec, TypeVar
+
+import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -112,6 +118,31 @@ def render_info(message: str) -> None:
 
 
 def render_error(error: AppError) -> None:
-    console.print(f"[red][Error] {error}[/red]")
-    console.print(f"  原因: {error.cause}")
-    console.print(f"  対処: {error.remedy}")
+    # 原因にはファイルのパスや YAML パーサの文言が入り、`[` `]` を含みうる。
+    # rich のマークアップとして解釈されると、文が欠けたり表示自体が落ちたりする。
+    console.print(f"[red][Error] {escape(str(error))}[/red]")
+    console.print(f"  原因: {escape(error.cause)}")
+    console.print(f"  対処: {escape(error.remedy)}")
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def handle_app_errors(func: Callable[_P, _R]) -> Callable[_P, _R | None]:
+    """コマンド本体で出た `AppError` を `render_error` で表示し、終了コード 1 で終える。
+
+    保存ファイルを読むコマンドは、どれも壊れたファイルで `StorageReadError` を
+    投げうる。コマンドごとに try/except を書くと書き忘れた分がトレースバックに
+    なるので、これで包む。
+    """
+
+    @wraps(func)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R | None:
+        try:
+            return func(*args, **kwargs)
+        except AppError as e:
+            render_error(e)
+            raise typer.Exit(code=1)
+
+    return wrapper
