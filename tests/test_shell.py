@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from task_cli.cli.shell import get_prompt, parse_input
+import pytest
+import typer
+from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
+
+from task_cli.cli.main import app as _app
+from task_cli.cli.shell import InteractiveShell, build_completer, get_prompt, parse_input
+from task_cli.exceptions import AppError
 from task_cli.models.task import GlobalConfig
 from task_cli.services.global_config_service import GlobalConfigService
 from task_cli.storage.global_config_storage import GlobalConfigStorage
@@ -56,11 +63,6 @@ class TestGetPrompt:
 
 # --- 補完(Issue #36) ---
 
-from prompt_toolkit.completion import CompleteEvent  # noqa: E402
-from prompt_toolkit.document import Document  # noqa: E402
-
-from task_cli.cli.main import app as _app  # noqa: E402
-from task_cli.cli.shell import build_completer  # noqa: E402
 
 
 def _complete(text: str) -> list[str]:
@@ -109,3 +111,43 @@ class TestCompleter:
     def test_empty_input_lists_commands(self) -> None:
         got = _complete("")
         assert "list" in got and "project" in got
+
+
+# --- AppError の表示(Issue #68) ---
+
+class TestRunCommandShowsAppErrorFully:
+    def test_app_error_is_shown_with_cause_and_remedy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """コマンドが `AppError` を捕捉しそこねても、原因と対処が出る(メッセージだけにならない)。"""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        fake = typer.Typer()
+
+        @fake.command("boom")
+        def boom() -> None:
+            raise AppError("壊れました", cause="ファイルが読めません", remedy="直してください")
+
+        @fake.command("other")
+        def other() -> None: ...
+
+        monkeypatch.setattr("task_cli.cli.main.app", fake)
+
+        InteractiveShell()._run_command(["boom"])
+
+        out = capsys.readouterr().out
+        assert "[Error] 壊れました" in out
+        assert "原因: ファイルが読めません" in out
+        assert "対処: 直してください" in out
+
+    def test_broken_config_does_not_crash_the_shell(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".task-py").mkdir()
+        (tmp_path / ".task-py" / "config.yaml").write_text("not: [valid: yaml", encoding="utf-8")
+
+        InteractiveShell()._run_command(["list"])
+
+        out = capsys.readouterr().out
+        assert "[Error]" in out and "原因" in out and "対処" in out
+        assert "Traceback" not in out

@@ -7,6 +7,8 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import InMemoryHistory
 
+from task_cli.cli.renderer import render_error
+from task_cli.exceptions import AppError
 from task_cli.services.global_config_service import GlobalConfigService
 from task_cli.storage.global_config_storage import GlobalConfigStorage
 
@@ -167,5 +169,8 @@ class InteractiveShell:
             app(args=args, standalone_mode=False)
         except SystemExit:
             pass
+        except AppError as e:
+            # コマンドが捕捉しそこねても、原因と対処を出す（メッセージだけにしない）
+            render_error(e)
         except Exception as e:
             typer.echo(f"エラー: {e}")

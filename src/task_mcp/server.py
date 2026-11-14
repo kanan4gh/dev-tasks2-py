@@ -1,3 +1,7 @@
+from collections.abc import Callable
+from functools import wraps
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 
 from task_cli.cli.deps import (
@@ -21,6 +25,28 @@ mcp = FastMCP("task-py")
 
 def _fmt_error(e: AppError) -> str:
     return f"エラー: {e.args[0]}\n原因: {e.cause}\n対処: {e.remedy}"
+
+
+def _app_errors_as_text(fn: Callable[..., str]) -> Callable[..., str]:
+    """ツール内で出た `AppError` を、`エラー: / 原因: / 対処:` のテキストにして返す。
+
+    `track`（呼び出しの記録）より外側に置く。内側に置くと、`AppError` が整形済みのテキストとして
+    `track` に届き、失敗が成功として記録される（`get_mcp_stats` に出なくなる）。
+
+    `AppError` を捕捉しないツールは、FastMCP が `ToolError`（メッセージだけ）に変えるため、
+    壊れた保存ファイルなどで原因と対処が失われる。ツールごとに `try/except` を書くと
+    足し忘れた分が例外になるので、全ツールをこれで包む（CLI の `handle_app_errors` と同じ考え方）。
+    """
+
+    @wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> str:
+        try:
+            return fn(*args, **kwargs)
+        except AppError as e:
+            return _fmt_error(e)
+
+    wrapper._formats_app_errors = True  # type: ignore[attr-defined]  # 包まれていることの検査用
+    return wrapper
 
 
 def _fmt_task(task: object) -> str:
@@ -53,6 +79,7 @@ def _fmt_task(task: object) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def list_tasks(status: str | None = None) -> str:
     """アクティブプロジェクト（または Inbox）のタスク一覧を返す。
@@ -72,6 +99,7 @@ def list_tasks(status: str | None = None) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def add_task(
     title: str,
@@ -89,6 +117,7 @@ def add_task(
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def show_task(id: int) -> str:
     """指定 ID のタスク詳細を返す。"""
@@ -100,6 +129,7 @@ def show_task(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def start_task(id: int) -> str:
     """タスクのステータスを in_progress に変更する。"""
@@ -112,6 +142,7 @@ def start_task(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def complete_task(id: int) -> str:
     """タスクのステータスを completed に変更する。"""
@@ -124,6 +155,7 @@ def complete_task(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def delete_task(id: int) -> str:
     """タスクを削除する。確認プロンプトはない。"""
@@ -138,6 +170,7 @@ def delete_task(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def archive_task(id: int) -> str:
     """タスクのステータスを archived に変更する。"""
@@ -150,6 +183,7 @@ def archive_task(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def edit_task(
     id: int,
@@ -182,6 +216,7 @@ def edit_task(
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def move_task(id: int, target_project: str | None = None) -> str:
     """タスクを別のプロジェクトに移動する。target_project を省略すると Inbox に移動する。"""
@@ -195,6 +230,7 @@ def move_task(id: int, target_project: str | None = None) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def search_tasks(keyword: str) -> str:
     """タイトル・説明をキーワードで検索する（大文字小文字を区別しない部分一致）。"""
@@ -212,6 +248,7 @@ def search_tasks(keyword: str) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def get_active_project() -> str:
     """現在のアクティブプロジェクト名を返す。Inbox モードの場合は 'Inbox' を返す。"""
@@ -221,6 +258,7 @@ def get_active_project() -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def list_projects() -> str:
     """プロジェクト一覧を返す。アクティブプロジェクトには * を付ける。"""
@@ -239,6 +277,7 @@ def list_projects() -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def create_project(name: str) -> str:
     """プロジェクトを作成し、アクティブプロジェクトに切り替える。"""
@@ -252,6 +291,7 @@ def create_project(name: str) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def use_project(name: str | None = None) -> str:
     """アクティブプロジェクトを切り替える。name を省略すると Inbox モードに切り替える。"""
@@ -272,6 +312,7 @@ def use_project(name: str | None = None) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def get_overview() -> str:
     """現在の状況概観を返す。アクティブプロジェクト・今日のルーティーン・着手すべきタスク・全タスクサマリーを含む。"""
@@ -331,6 +372,7 @@ def get_overview() -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def list_routines(include_paused: bool = False) -> str:
     """今日のルーティーン一覧を返す。include_paused=true で一時停止中も含める。"""
@@ -347,6 +389,7 @@ def list_routines(include_paused: bool = False) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def add_routine(title: str) -> str:
     """ルーティーンを登録する。"""
@@ -356,6 +399,7 @@ def add_routine(title: str) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def complete_routine(id: int) -> str:
     """指定 ID のルーティーンを今日の分として済にする。"""
@@ -368,6 +412,7 @@ def complete_routine(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def pause_routine(id: int) -> str:
     """ルーティーンを一時停止する（list から非表示になる）。"""
@@ -380,6 +425,7 @@ def pause_routine(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def resume_routine(id: int) -> str:
     """一時停止中のルーティーンを再開する。"""
@@ -392,6 +438,7 @@ def resume_routine(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def delete_routine(id: int) -> str:
     """ルーティーンを削除する。実績ログも削除される。"""
@@ -404,6 +451,7 @@ def delete_routine(id: int) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def get_daily_stats() -> str:
     """直近7日のルーティーン日別達成率を返す。"""
@@ -448,6 +496,7 @@ def _fmt_stop(result: StopResult) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def start_timer(
     duration: str | None = None,
@@ -475,6 +524,7 @@ def start_timer(
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def get_timer_status() -> str:
     """実行中タイマーの状態を返す。CLI で開始したタイマーもここから見える。"""
@@ -488,6 +538,7 @@ def get_timer_status() -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def stop_timer() -> str:
     """タイマーを終了し、経過時間を対象タスクの作業時間として記録する。"""
@@ -499,6 +550,7 @@ def stop_timer() -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def cancel_timer() -> str:
     """タイマーを破棄する。作業時間は記録しない。"""
@@ -510,6 +562,7 @@ def cancel_timer() -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def log_work_time(task_id: int, duration: str) -> str:
     """作業時間を手動で記録する。duration は "25m" / "1h" 形式。"""
@@ -528,6 +581,7 @@ def log_work_time(task_id: int, duration: str) -> str:
 
 
 @mcp.tool()
+@_app_errors_as_text
 @track
 def get_mcp_stats() -> str:
     """MCPツールの呼び出し統計を返す。どのツールが何回呼ばれたかを確認できる。"""

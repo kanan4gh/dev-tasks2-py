@@ -9,31 +9,31 @@ Python 版へ移った後も記述が残った(Issue #43)。add-feature の軽�
 """
 
 import re
-from pathlib import Path
 
 import typer.main
+from _doc_currency import (
+    COMMON_TYPESCRIPT_TERMS,
+    DOCS,
+    OLD_FILE_NAMES,
+    cli_commands,
+    missing_source_paths,
+    old_storage_location_offenders,
+)
 
 from task_cli.cli.main import app
 
-ROOT = Path(__file__).parents[2]
-DOC = ROOT / "docs" / "functional-design.md"
+DOC = DOCS / "functional-design.md"
 
 UNIMPLEMENTED_HEADING = "## 未実装の設計"
 
-# TypeScript 版時代の道具立て。Python 版のどこにも存在しないので、文書全体で禁止する。
+# TypeScript 版時代の道具立て。共通の禁止語に、この文書だけの分を足す。
+# `npm` は、Web GUI 節の「node / npm を使わず」という現行の記述に一致するので禁止語にしない。
 TYPESCRIPT_ERA_TERMS = (
-    "Commander.js",
-    "Vitest",
-    "simple-git",
-    "node-fetch",
+    *COMMON_TYPESCRIPT_TERMS,
     "Array.prototype",
     "AbortController",
-    "Node.js",
     "encodeURIComponent",
 )
-
-# 旧い永続ファイル名。Python 版は YAML(Web の JSON API の説明は別物)。
-OLD_FILE_NAMES = ("tasks.json", "config.json", "routines.json", "log.json")
 
 # Python 版に実装のない Git・GitHub 連携の識別子。実装済みの節に出てはならない
 # (「未実装」と書いた参照行を除く)。`GlobalConfigService` を巻き込まないよう単語境界で見る。
@@ -62,18 +62,6 @@ def split_sections(text: str) -> tuple[str, str]:
     return "\n".join(lines[: starts[0]]), "\n".join(lines[starts[0] :])
 
 
-def cli_commands() -> tuple[set[str], dict[str, set[str]]]:
-    """task-py の実在するコマンド。(トップレベル全体, グループ → サブコマンド)。"""
-    root = typer.main.get_command(app)
-    top: set[str] = set(getattr(root, "commands", {}))
-    groups: dict[str, set[str]] = {}
-    for name, command in getattr(root, "commands", {}).items():
-        subs = getattr(command, "commands", None)
-        if subs:
-            groups[name] = set(subs)
-    return top, groups
-
-
 def test_no_typescript_code_blocks() -> None:
     assert "```typescript" not in read_doc()
 
@@ -92,11 +80,7 @@ def test_no_typescript_era_tools_or_apis() -> None:
 
 
 def test_old_storage_location_only_appears_when_describing_migration() -> None:
-    offenders = [
-        line.strip()
-        for line in read_doc().splitlines()
-        if "~/.task/" in line and "migrate" not in line and "移行" not in line
-    ]
+    offenders = old_storage_location_offenders(read_doc())
     assert offenders == [], "旧保存先 ~/.task/ は移行の説明以外に出てはならない"
 
 
@@ -107,13 +91,7 @@ def test_no_old_json_storage_file_names() -> None:
 
 
 def test_source_and_test_paths_named_in_the_document_exist() -> None:
-    text = read_doc()
-    missing = []
-    for path in sorted(set(re.findall(r"`((?:src|tests)/[^`\s]+)`", text))):
-        if any(mark in path for mark in "*<>{}"):
-            continue
-        if not (ROOT / path).exists():
-            missing.append(path)
+    missing = missing_source_paths(read_doc())
     assert missing == [], f"存在しないパスを指しています: {missing}"
 
 

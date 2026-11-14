@@ -11,26 +11,24 @@ Git・GitHub 連携は要求として残すが Python 版には実装が無い�
 """
 
 import re
-from pathlib import Path
 
 import pytest
-import typer.main
+from _doc_currency import (
+    COMMON_TYPESCRIPT_TERMS,
+    DOCS,
+    OLD_FILE_NAMES,
+    cli_commands,
+    missing_source_paths,
+    old_storage_location_offenders,
+)
 
-from task_cli.cli.main import app
-
-ROOT = Path(__file__).parents[2]
-DOCS = ROOT / "docs"
 TARGETS = ("product-requirements.md", "glossary.md")
 
 UNIMPLEMENTED = "【未実装】"
 
-# TypeScript 版時代の道具立て。Python 版のどこにも存在しないので、文書全体で禁止する。
+# TypeScript 版時代の道具立て。共通の禁止語に、これらの文書だけの分を足す。
 TYPESCRIPT_ERA_TERMS = (
-    "Commander.js",
-    "Vitest",
-    "simple-git",
-    "node-fetch",
-    "Node.js",
+    *COMMON_TYPESCRIPT_TERMS,
     "npm ",
     "husky",
     "lint-staged",
@@ -40,9 +38,6 @@ TYPESCRIPT_ERA_TERMS = (
     "TypeScript 型",
     "src/types/index.ts",
 )
-
-# 旧い永続ファイル名。Python 版は YAML。
-OLD_FILE_NAMES = ("tasks.json", "config.json", "routines.json", "log.json")
 
 # コマンド名は `task-py`。`task <サブコマンド>` の形は実在しない。
 TASK_COMMAND_WORDS = (
@@ -102,17 +97,6 @@ def command_mentions(text: str) -> list[tuple[str, str | None, bool]]:
     return mentions
 
 
-def cli_commands() -> tuple[set[str], dict[str, set[str]]]:
-    root = typer.main.get_command(app)
-    top: set[str] = set(getattr(root, "commands", {}))
-    groups: dict[str, set[str]] = {}
-    for name, command in getattr(root, "commands", {}).items():
-        subs = getattr(command, "commands", None)
-        if subs:
-            groups[name] = set(subs)
-    return top, groups
-
-
 @pytest.mark.parametrize("name", TARGETS)
 def test_no_typescript_era_tools_or_paths(name: str) -> None:
     text = read(name)
@@ -124,11 +108,7 @@ def test_no_typescript_era_tools_or_paths(name: str) -> None:
 
 @pytest.mark.parametrize("name", TARGETS)
 def test_old_storage_location_only_appears_when_describing_migration(name: str) -> None:
-    offenders = [
-        line.strip()
-        for line in read(name).splitlines()
-        if "~/.task/" in line and "migrate" not in line and "移行" not in line
-    ]
+    offenders = old_storage_location_offenders(read(name))
     assert offenders == [], "旧保存先 ~/.task/ は移行の説明以外に出てはならない"
 
 
@@ -147,12 +127,7 @@ def test_command_name_is_task_py(name: str) -> None:
 
 @pytest.mark.parametrize("name", TARGETS)
 def test_source_and_test_paths_named_in_the_document_exist(name: str) -> None:
-    missing = []
-    for path in sorted(set(re.findall(r"`((?:src|tests)/[^`\s]+)`", read(name)))):
-        if any(mark in path for mark in "*<>{}"):
-            continue
-        if not (ROOT / path).exists():
-            missing.append(path)
+    missing = missing_source_paths(read(name))
     assert missing == [], f"存在しないパスを指しています: {missing}"
 
 
