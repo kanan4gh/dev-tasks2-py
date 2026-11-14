@@ -239,6 +239,44 @@ task-py add "セキュリティ脆弱性の修正" --priority high
 
 ---
 
+### ルーティーン (Routine)
+
+**定義**: 毎日繰り返す習慣的な項目。タスクとは別の管理単位で、「今日やったか」だけを記録する。
+
+**説明**: `task-py daily add <title>` で登録し、`task-py daily done <id>` で今日の分を済にする。日付が変わった後の最初の操作で、一時停止していないルーティーンがすべて `pending`（未）として今日の記録に書き足される（Web GUI は書き足さず、記録が無いものを `pending` として扱う）。一時停止（`paused`）したルーティーンは `task-py daily list` に出ない（`--all` で表示）。一時停止中のルーティーンを概況表示に数えるかは、入口によって違う（下の「概況表示」を参照）。日別の記録（`DailyLog`）は、直近30日分だけ保持する。
+
+**関連コマンド**: `task-py daily add` / `list` / `done` / `pause` / `resume`（`id` を省略するか `--all` で、一時停止中の全件を再開）/ `delete`（実績ログも消す）/ `stats`（直近の日別ログ7日分の達成率）/ `reset`（今日のチェックをすべて未に戻す）
+
+**表示**: `task-py overview` の「今日の毎日やること」では、ID が `[r<ID>]` の形で出る。完了は `task-py daily done <ID>`。
+
+**データモデル**: `Routine`（`id` / `title` / `paused` / `created_at`）、`DailyLog`（`date` と、`routine_id` と `status`（`pending` / `done`）の `entries`）。`~/.task-py/daily/routines.yaml` と `~/.task-py/daily/log.yaml` に保存する。
+
+**実装**: `src/task_cli/models/daily.py`、`src/task_cli/services/daily_service.py`
+
+---
+
+### 解禁日 (Scheduled Date)
+
+**定義**: タスクを着手できるようになる日。`Task.scheduled_date`（`YYYY-MM-DD`）に保持する。
+
+**説明**: 解禁日が今日より後のタスクは `start` できない（`StateConflictError`。Web では 409）。期限（`due_date`）とは別物で、期限は「いつまでに終えるか」、解禁日は「いつから着手してよいか」である。`task-py schedule <id> [date]` で設定し（`--clear` で解除）、`task-py edit --scheduled <date>` でも設定できる。`task-py show` の `Sched` の行に出て、未来の日付には「まだ着手できません」が併記される。
+
+「今日」の定義は1か所（`src/task_cli/clock.py` の `today_str()`、ローカルタイムゾーンの日付）にあり、`start` の判定と `show` の表示が同じ定義を使う。
+
+**実装**: `src/task_cli/models/task.py`（`scheduled_date`）、`src/task_cli/services/task_manager.py`（`start_task`）、`src/task_cli/clock.py`
+
+---
+
+### 概況表示 (Overview)
+
+**定義**: 今の状況を一画面（一回の応答）に要約する表示。GTD の「見直し」を一度に行うためのもの。
+
+**説明**: 3つの入口にそれぞれある。CLI は `task-py overview`（シェルの起動時にも表示する）、MCP は `get_overview`、Web GUI は `/api/overview`。共通の核は、アクティブプロジェクト・今日の毎日やること・`open` と `in_progress` のタスクである。入口ごとの差がある。CLI と MCP は「今とりかかるべきタスク」（最大3件）を持つ。Web GUI はそれを持たず、タイマーと日別の達成率を加える。一時停止中のルーティーンは、CLI と Web GUI が数え、MCP は数えない（入口で揃っていない）。
+
+**実装**: `src/task_cli/cli/commands/onboard.py`（CLI）、`src/task_mcp/server.py`（MCP）、`src/task_web/api.py`（Web）
+
+---
+
 ### コミット自動タグ付け (Commit Auto-tagging)【未実装】
 
 > **要求のみ。Python 版には未実装**（Git・GitHub 連携の一部）。
@@ -518,6 +556,18 @@ git commit -m "feat(cli): --sort オプションを追加"
 
 ---
 
+### MCP サーバー
+
+**定義**: Claude などの AI から、会話を通じてタスクを操作するための入口。`task-mcp` コマンドで起動する、Model Context Protocol のサーバー。CLI・ローカル Web GUI に並ぶ3つ目の入口である。
+
+**本プロジェクトでの位置づけ**: 標準入出力（stdio）で通信する。ツールは、タスク（一覧・追加・表示・開始・完了・削除・アーカイブ・編集・移動・検索）、プロジェクト、概況（`get_overview`）、ルーティーン、タイマー・作業時間、呼び出しの統計（`get_mcp_stats`）を扱う。CLI と同じ `TaskCrudUseCase` などを通るので、同じ `~/.task-py/` のデータを読み書きする。
+
+エラーは例外にせず、`エラー: / 原因: / 対処:` のテキストで返す（全ツールを `_app_errors_as_text` で包む）。壊れた保存ファイルでも、原因と対処が読める。呼び出しは `~/.task-py/mcp_calls.jsonl` に記録する。
+
+**実装**: `src/task_mcp/server.py`、`src/task_mcp/tracking.py`
+
+---
+
 ### 不可分な置き換え
 
 **定義**: 同じディレクトリの一時ファイルへ書き出し、`fsync` してから `os.replace()` で本体と差し替える書き込み方式。
@@ -790,6 +840,8 @@ git commit -m "feat(cli): --sort オプションを追加"
 - [Inbox](#inbox) — ドメイン用語
 
 ### か行
+- [概況表示](#概況表示-overview) — ドメイン用語
+- [解禁日](#解禁日-scheduled-date) — ドメイン用語
 - [完了日時](#完了日時-completed-at) — ドメイン用語
 - [コミット自動タグ付け【未実装】](#コミット自動タグ付け-commit-auto-tagging未実装) — ドメイン用語
 
@@ -821,6 +873,7 @@ git commit -m "feat(cli): --sort オプションを追加"
 ### ら行
 - [楽観的ロック（If-Match）](#楽観的ロックif-match) — アーキテクチャ用語
 - [リビジョン（revision）](#リビジョンrevision) — アーキテクチャ用語
+- [ルーティーン](#ルーティーン-routine) — ドメイン用語
 - [レイヤードアーキテクチャ](#レイヤードアーキテクチャ-layered-architecture) — アーキテクチャ用語
 - [ローカル Web GUI](#ローカル-web-gui) — アーキテクチャ用語
 
@@ -838,6 +891,7 @@ git commit -m "feat(cli): --sort オプションを追加"
 - [GlobalConfigService](#globalconfigservice) — アーキテクチャ用語
 - [GlobalConfigStorage](#globalconfigstorage) — アーキテクチャ用語
 - [KPI](#kpi) — 略語
+- [MCP サーバー](#mcp-サーバー) — アーキテクチャ用語
 - [MVP](#mvp) — 略語
 - [PAT【未実装】](#pat未実装) — 略語
 - [PR【未実装】](#pr未実装) — 略語

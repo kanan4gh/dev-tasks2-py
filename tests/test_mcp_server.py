@@ -345,3 +345,80 @@ def test_get_mcp_stats_tool(tmp_task_env: Path) -> None:
     text = _text(result)
     assert isinstance(text, str)
     assert len(text) > 0
+
+
+# ─── 壊れた保存ファイル(Issue #68) ──────────────────────────────────
+
+# 保存ファイルを読むツールと、その呼び出し引数。壊れたファイルでは、例外(`ToolError`)ではなく
+# `エラー:` / `原因:` / `対処:` のテキストを返す。タイマーの状態を見るだけのツール
+# (`get_timer_status` など)は、壊れた `timer.yaml` を「動いていない」として扱うので含めない。
+BROKEN_FILE_CALLS: list[tuple[str, dict[str, object]]] = [
+    ("list_tasks", {}),
+    ("add_task", {"title": "t"}),
+    ("show_task", {"id": 1}),
+    ("start_task", {"id": 1}),
+    ("complete_task", {"id": 1}),
+    ("delete_task", {"id": 1}),
+    ("archive_task", {"id": 1}),
+    ("edit_task", {"id": 1, "title": "x"}),
+    ("move_task", {"id": 1, "target_project": "p"}),
+    ("search_tasks", {"keyword": "x"}),
+    ("get_active_project", {}),
+    ("list_projects", {}),
+    ("create_project", {"name": "p"}),
+    ("use_project", {"name": "p"}),
+    ("get_overview", {}),
+    ("list_routines", {}),
+    ("add_routine", {"title": "r"}),
+    ("complete_routine", {"id": 1}),
+    ("pause_routine", {"id": 1}),
+    ("resume_routine", {"id": 1}),
+    ("delete_routine", {"id": 1}),
+    ("get_daily_stats", {}),
+    ("log_work_time", {"task_id": 1, "duration": "20m"}),
+]
+
+
+@pytest.fixture
+def broken_files(tmp_task_env: Path) -> Path:
+    (tmp_task_env / "daily").mkdir()
+    (tmp_task_env / "inbox").mkdir()
+    for name in ("config.yaml", "daily/routines.yaml", "daily/log.yaml", "inbox/tasks.yaml"):
+        (tmp_task_env / name).write_text("not: [valid: yaml", encoding="utf-8")
+    return tmp_task_env
+
+
+@pytest.mark.parametrize(("tool", "args"), BROKEN_FILE_CALLS, ids=[c[0] for c in BROKEN_FILE_CALLS])
+def test_broken_storage_file_returns_cause_and_remedy(
+    broken_files: Path, tool: str, args: dict[str, object]
+) -> None:
+    text = _text(run(mcp.call_tool(tool, args)))
+
+    assert "エラー" in text
+    assert "原因" in text
+    assert "対処" in text
+    assert "手で直" in text
+
+
+def test_every_tool_turns_app_errors_into_text() -> None:
+    """ツールを足したときに、`AppError` の整形を付け忘れない(足し忘れた分が例外になる)。"""
+    unwrapped = []
+    for tool in mcp._tool_manager.list_tools():  # type: ignore[attr-defined]
+        fn = tool.fn
+        while fn is not None and not getattr(fn, "_formats_app_errors", False):
+            fn = getattr(fn, "__wrapped__", None)
+        if fn is None:
+            unwrapped.append(tool.name)
+    assert unwrapped == [], f"AppError をテキストにしていないツール: {unwrapped}"
+
+
+def test_broken_file_is_logged_as_a_failed_call(broken_files: Path) -> None:
+    """整形したテキストを返しても、呼び出しの記録は失敗として残す(`get_mcp_stats` に出る)。"""
+    import json
+
+    run(mcp.call_tool("get_active_project", {}))
+
+    log = (broken_files / "mcp_calls.jsonl").read_text(encoding="utf-8").splitlines()
+    entry = json.loads(log[-1])
+    assert entry["tool"] == "get_active_project"
+    assert entry["ok"] is False
