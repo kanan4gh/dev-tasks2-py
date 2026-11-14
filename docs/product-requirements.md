@@ -1,47 +1,57 @@
 # プロダクト要求定義書 (Product Requirements Document)
 
+> **この文書の読み方（2026-11-15 に Python 版の実態へ現行化）**
+>
+> - 実装は **Python 版（`task-py`）** で、タスクは `~/.task-py/` 以下の YAML に保存する。TypeScript 版（`task` コマンド・`~/.task/` の JSON）の記述は、移行の説明を除いて残していない
+> - **Git・GitHub 連携（P1）は要求として残しているが、Python 版には未実装**である。該当する節・項目には【未実装】または「未実装」と明記している。設計案は `docs/functional-design.md` の「未実装の設計（Git・GitHub 連携 P1）」節にある。実装するか廃止するかの方針は未決で、それまでは要求を残す
+> - 受け入れ条件のチェックボックスは**要求の定義であり、実装の進捗を表さない**。実装の状況は、各機能の「実装状況」の行と「リリース計画」を見る
+> - 実装済みの挙動の正は `docs/functional-design.md`（コマンド表・データモデル）である
+
 ## プロダクト概要
 
 ### 名称
-**TaskCLI** - ターミナルで完結する、開発者向け GTD タスク管理ツール
+**TaskCLI** - ターミナルで完結する、開発者向け GTD タスク管理ツール（コマンド名 `task-py`）
 
 ### プロジェクト・リポジトリ・タスクの関係
 
 | 概念 | 定義 |
 |---|---|
-| **プロジェクト** | TaskCLI で管理する作業単位。`task project create <name>` でグローバル設定に登録する。Git リポジトリとの紐付けは任意。 |
-| **Inbox** | プロジェクト未割り当てのタスクを一時的に保管する特殊な場所。`~/.task/inbox/tasks.json` に保存される。アクティブプロジェクト未設定時のデフォルト保管先。 |
+| **プロジェクト** | TaskCLI で管理する作業単位。`task-py project create <name>` でグローバル設定に登録する。Git リポジトリとの紐付けは任意（紐付けは未実装）。 |
+| **Inbox** | プロジェクト未割り当てのタスクを一時的に保管する特殊な場所。`~/.task-py/inbox/tasks.yaml` に保存される。アクティブプロジェクト未設定時のデフォルト保管先。 |
 | **タスクの集合** | 1つのプロジェクト（または inbox）に紐付くタスク群。プロジェクトをまたいで共有されない。 |
-| **GitHub リポジトリ** | オプションの連携先。1つのプロジェクトに対して最大1つの GitHub リポジトリと連携できる。未設定でもローカル単独で使用可能。 |
+| **GitHub リポジトリ** | オプションの連携先（**未実装**）。1つのプロジェクトに対して最大1つの GitHub リポジトリと連携できる。未設定でもローカル単独で使用可能。 |
 
 ```
-~/.task/                          ← グローバルストレージ
-├── config.json                   ← グローバル設定（activeProject など）
+~/.task-py/                       ← グローバルストレージ
+├── config.yaml                   ← グローバル設定（active_project・プロジェクト一覧など）
+├── timer.yaml                    ← 実行中のタイマー
+├── daily/
+│   ├── routines.yaml             ← 毎日やること（ルーティーン）
+│   └── log.yaml                  ← ルーティーンの日別の実績
 ├── inbox/
-│   └── tasks.json                ← プロジェクト未割り当てタスク
+│   └── tasks.yaml                ← プロジェクト未割り当てタスク
 └── projects/
     ├── project-a/
-    │   ├── tasks.json            ← タスクデータ（独立）
-    │   └── config.json           ← GitHub Token など
+    │   └── tasks.yaml            ← タスクデータ（独立）
     └── project-b/
-        ├── tasks.json            ← タスクデータ（独立）
-        └── config.json           ↕（未設定も可）
-                                  GitHub: org/project-b
+        └── tasks.yaml            ← タスクデータ（独立）
 ```
+
+（GitHub 連携のトークン等をプロジェクト別に保存する設定ファイルは、連携が未実装のため存在しない。）
 
 **ルール**:
 - タスクの集合はプロジェクトをまたいで共有・参照しない
 - アクティブプロジェクトが未設定の場合、タスク操作は inbox を対象とする（エラーにならない）
-- inbox のタスクは `task move <id> <project>` でプロジェクトに移動できる
-- Git 連携はオプション。`task start` などの Git 操作はカレントディレクトリの `.git/` を使う。Git リポジトリが存在しない場合はタスクのステータス更新のみ行う
-- 1プロジェクト = 1 GitHub リポジトリ（複数リポジトリへの同時連携は不可）
-- GitHub 連携はオプション。未設定でもタスクの基本操作・Git ブランチ連携はすべて使用可能
+- inbox のタスクは `task-py move <id> <project>` でプロジェクトに移動できる
+- Git 連携はオプション（**未実装**）。`task-py start` などの Git 操作はカレントディレクトリの `.git/` を使う。Git リポジトリが存在しない場合はタスクのステータス更新のみ行う
+- 1プロジェクト = 1 GitHub リポジトリ（複数リポジトリへの同時連携は不可）（**未実装**）
+- GitHub 連携はオプション（**未実装**）。未設定でもタスクの基本操作・Git ブランチ連携はすべて使用可能
 
 **ユーザーとプロジェクトの関係（MVP スコープ）**:
 - TaskCLI は **個人ツール**として設計する。タスクの集合はローカルの1ユーザーに帰属する
-- タスクデータは `~/.task/` に保存されるため、Git リポジトリには含まれない
-- チームメンバー間のタスク共有・可視化は **GitHub Issues 連携（P1）** を通じて行う
-- タスクのアサイン・チーム全体の進捗管理は **v2.0（P2）** のスコープ
+- タスクデータは `~/.task-py/` に保存されるため、Git リポジトリには含まれない
+- チームメンバー間のタスク共有・可視化は **GitHub Issues 連携（P1、未実装）** を通じて行う
+- タスクのアサイン・チーム全体の進捗管理は **v2.0（P2、未実装）** のスコープ
 
 ---
 
@@ -55,29 +65,29 @@ TaskCLI は GTD の各ステップを CLI コマンドに対応させている:
 
 | GTD ステップ | 内容 | TaskCLI での対応 |
 |---|---|---|
-| 収集 (Capture) | 頭の中のことをすべて書き出す | `task add` → Inbox へ即時保存 |
-| 明確化 (Clarify) | 各アイテムの意味・アクションを決める | `task show` / `task edit` |
-| 整理 (Organize) | プロジェクトや優先度に分類する | `task project create` / `task project use` / `task move` |
-| 見直し (Reflect) | 定期的に全体を確認する | `task list` |
-| 実行 (Engage) | 実際に取り組む | `task start` |
+| 収集 (Capture) | 頭の中のことをすべて書き出す | `task-py add` → Inbox へ即時保存 |
+| 明確化 (Clarify) | 各アイテムの意味・アクションを決める | `task-py show` / `task-py edit` |
+| 整理 (Organize) | プロジェクトや優先度に分類する | `task-py project create` / `task-py project use` / `task-py move` |
+| 見直し (Reflect) | 定期的に全体を確認する | `task-py list` / `task-py overview` |
+| 実行 (Engage) | 実際に取り組む | `task-py start` |
 
-さらに Git・GitHub と統合することで、開発者固有の「ブランチ・コミット・PR」という実行ステップをタスク管理に自動的に紐付ける。
+さらに Git・GitHub と統合することで、開発者固有の「ブランチ・コミット・PR」という実行ステップをタスク管理に自動的に紐付ける（**未実装**）。
 
 - **ターミナル完結**: 外部の SaaS 型タスク管理ツールに切り替えることなく、全操作をターミナルで完結（2026-09-05 に、GTD の「整理」「見直し」を補うローカル GUI の追加を決定した。CLI は引き続き第一級のインターフェースであり、詳細は「スコープ外」節の注記を参照）
-- **段階的な Git 連携**: Git なしでも GTD ベースのタスク管理ツールとして使える。Git・GitHub 連携は任意で追加できる
-- **Git との一体感**: タスクとブランチを 1 対 1 で紐付け、コミット・PR・マージとタスクを自動連携（Git 連携時）
-- **開発フローへの溶け込み**: タスク開始 → ブランチ作成 → コミット → PR → マージ → タスク完了の一連のフローを自動化・支援（Git 連携時）
+- **段階的な Git 連携**: Git なしでも GTD ベースのタスク管理ツールとして使える。Git・GitHub 連携は任意で追加できる（**未実装**）
+- **Git との一体感**: タスクとブランチを 1 対 1 で紐付け、コミット・PR・マージとタスクを自動連携（Git 連携時。**未実装**）
+- **開発フローへの溶け込み**: タスク開始 → ブランチ作成 → コミット → PR → マージ → タスク完了の一連のフローを自動化・支援（Git 連携時。**未実装**）
 
 ### プロダクトビジョン
 開発者がターミナルから離れることなく、GTD メソッドに基づいたタスク管理を完結できる CLI ツールを提供する。
 「頭の中を空にし、今やるべきことに集中する」という GTD の本質を、シンプルなコマンドで実現する。
-Jira や Trello のような重厚な GUI ツールとは異なり、インストールして即使える軽量さを維持しながら、Git・GitHub との段階的な統合により、コードを書くこととタスクを管理することを自然につなげる。
+Jira や Trello のような重厚な GUI ツールとは異なり、インストールして即使える軽量さを維持しながら、Git・GitHub との段階的な統合により、コードを書くこととタスクを管理することを自然につなげる（Git・GitHub との統合は**未実装**）。
 
 ### 目的
 - GTD の 5 ステップ（収集・明確化・整理・見直し・実行）をターミナルだけで完結させる
 - ターミナルと外部 SaaS 型ツール間のコンテキストスイッチを排除する
 - 1 分以内に使い始められるシンプルさを維持する
-- （v1.1 以降）タスクと Git ブランチ・コミット・PR を自動的に紐付け、手作業を自動化する
+- （v1.1 以降、未実装）タスクと Git ブランチ・コミット・PR を自動的に紐付け、手作業を自動化する
 
 ---
 
@@ -88,45 +98,45 @@ Jira や Trello のような重厚な GUI ツールとは異なり、インス�
 - ターミナル中心の開発環境（Vim/VSCode + zsh）
 - GitHub Issues は使っているが、ローカル作業との連携ができていない
 - **課題**: 「あれ、次何やるんだっけ？」と迷うたびにブラウザを開く
-- **期待**: ターミナルで `task list` と打てばすべてが確認でき、`task start 1` で作業を開始できる
+- **期待**: ターミナルで `task-py list` と打てばすべてが確認でき、`task-py start 1` で作業を開始できる
 - **1日の典型的なワークフロー（v1.0）**:
-  1. ターミナルを開く → `task list` でタスク確認
-  2. `task start 3` → ステータスが `in_progress` に変更 → コーディング開始
-  3. `task done 3` → タスク完了
-- **1日の典型的なワークフロー（v1.1 以降、Git 連携時）**:
-  1. ターミナルを開く → `task list` でタスク確認
-  2. `task start 3` → 自動でブランチ切り替え → コーディング開始
-  3. `git commit` → タスク番号が自動付与
-  4. `task done 3 --pr` → PR 作成 → タスク完了
+  1. ターミナルを開く → `task-py list` でタスク確認
+  2. `task-py start 3` → ステータスが `in_progress` に変更 → コーディング開始
+  3. `task-py done 3` → タスク完了
+- **1日の典型的なワークフロー（v1.1 以降、Git 連携時。未実装）**:
+  1. ターミナルを開く → `task-py list` でタスク確認
+  2. `task-py start 3` → 自動でブランチ切り替え（未実装）→ コーディング開始
+  3. `git commit` → タスク番号が自動付与（未実装）
+  4. `task-py done 3 --pr` → PR 作成 → タスク完了（未実装）
 
 ### セカンダリーペルソナ: 鈴木あゆみ（34歳、スタートアップのテックリード）
 - 3〜5 人の小規模チームをリード
 - 朝会でタスク状況の確認に時間をかけたくない
 - Jira は「重すぎる」と感じており、もっと軽量なツールを探している
 - **課題**: 自分のタスクが複数プロジェクトにまたがっており、何から手をつけるか整理しきれていない
-- **期待**: プロジェクトごとにタスクを整理し、GitHub Issues と連携して手作業を減らしたい
+- **期待**: プロジェクトごとにタスクを整理し、GitHub Issues と連携して手作業を減らしたい（連携は未実装）
 - **1日の典型的なワークフロー（v1.0）**:
-  1. `task project use work` でプロジェクトを切り替え
-  2. `task list` で自分のタスクを確認し、朝会の準備
-  3. `task start 3` → コーディング → `task done 3` でタスク完了
-- **1日の典型的なワークフロー（v1.1 以降、GitHub Issues 連携時）**:
-  1. `task import --github` でチームの GitHub Issues をローカルに取り込み
-  2. `task list` で Issue と紐付いたタスクを確認しながら朝会
-  3. `task done 5 --pr` で PR を作成し、チームレビューに回す
-- **将来の期待（v2.0）**: `task list --team` でチーム全員の進捗を一覧確認し、`task assign 5 @bob` でタスクを再アサイン
+  1. `task-py project use work` でプロジェクトを切り替え
+  2. `task-py list` で自分のタスクを確認し、朝会の準備
+  3. `task-py start 3` → コーディング → `task-py done 3` でタスク完了
+- **1日の典型的なワークフロー（v1.1 以降、GitHub Issues 連携時。未実装）**:
+  1. `task-py import --github` でチームの GitHub Issues をローカルに取り込み（未実装）
+  2. `task-py list` で Issue と紐付いたタスクを確認しながら朝会（未実装）
+  3. `task-py done 5 --pr` で PR を作成し、チームレビューに回す（未実装）
+- **将来の期待（v2.0、未実装）**: チーム全員の進捗を一覧確認し、タスクを再アサインする
 
 ---
 
 ## 成功指標（KPI）
 
-> **計測方針**: MVP ではテレメトリを実装しない。GitHub・npm registry で直接確認できる指標と、定期アンケートで計測可能な指標に限定する。
+> **計測方針**: MVP ではテレメトリを実装しない。GitHub で直接確認できる指標と、定期アンケートで計測可能な指標に限定する。Python 版は GitHub から `uv tool install git+https://github.com/kanan4gh/dev-tasks2-py` で直接インストールする配布で、パッケージレジストリには公開していない。
 
 ### プライマリーKPI
 
 | 指標 | 目標値 | 計測手段 | 計測タイミング |
 |---|---|---|---|
 | **GitHub Stars** | 500 Stars | GitHub リポジトリで直接確認 | リリース後 6 ヶ月 |
-| **npm 月間ダウンロード数** | 500 DL / 月 | npm registry（npmjs.com）で確認 | リリース後 3 ヶ月 |
+| **パッケージレジストリの月間ダウンロード数** | 500 DL / 月 | **計測不能**（TypeScript 版の配布経路を前提にした指標。Python 版はレジストリに公開していないため、代わりの指標は未決） | リリース後 3 ヶ月 |
 | **継続利用率** | 30% 以上 | README 経由のアンケート（Google Form）| リリース後 1 ヶ月時点 |
 
 継続利用率の定義: アンケート回答者のうち「初回インストールから 1 週間後も使っている」と回答した割合
@@ -142,6 +152,8 @@ Jira や Trello のような重厚な GUI ツールとは異なり、インス�
 
 ## 機能要件
 
+> 受け入れ条件のチェックボックスは要求の定義であり、実装の進捗を表さない（冒頭の注記を参照）。各機能の「実装状況」の行が、Python 版の現状である。CLI には無いが Web GUI・MCP にはある、といった差もそこに書く。
+
 ### コア機能（P0: v1.0 MVP）
 
 #### 1. Inbox — 収集 (Capture)
@@ -150,14 +162,16 @@ Jira や Trello のような重厚な GUI ツールとは異なり、インス�
 開発者として、どのプロジェクトに属するか決まっていないタスクもすぐに記録したいので、プロジェクト設定なしでタスクを追加・管理できる機能が欲しい
 
 **受け入れ条件**:
-- [ ] アクティブプロジェクトが未設定の状態で `task add` を実行すると、inbox にタスクが追加される（エラーにならない）
-- [ ] `task list --inbox` で inbox のタスク一覧が表示される
-- [ ] アクティブプロジェクト未設定時に `task list` を実行すると inbox のタスクが表示される
-- [ ] `task move <id> <project>` で inbox のタスクを指定プロジェクトに移動できる
-- [ ] `task move <id> inbox` でプロジェクトのタスクを inbox に戻すことができる
-- [ ] `task inbox` でアクティブプロジェクトを解除し inbox モードに切り替えられる
-- [ ] inbox のタスクに対して `task start` を実行すると、アクティブプロジェクトへの移動を促すメッセージが表示される（Git ブランチ操作にはプロジェクト設定が必要なため）
-- [ ] inbox のタスクデータは `~/.task/inbox/tasks.json` に保存される
+- [ ] アクティブプロジェクトが未設定の状態で `task-py add` を実行すると、inbox にタスクが追加される（エラーにならない）
+- [ ] `task-py list --inbox` で inbox のタスク一覧が表示される
+- [ ] アクティブプロジェクト未設定時に `task-py list` を実行すると inbox のタスクが表示される
+- [ ] `task-py move <id> <project>` で inbox のタスクを指定プロジェクトに移動できる
+- [ ] `task-py move <id> inbox` でプロジェクトのタスクを inbox に戻すことができる
+- [ ] `task-py inbox` でアクティブプロジェクトを解除し inbox モードに切り替えられる
+- [ ] inbox のタスクに対して `task-py start` を実行すると、アクティブプロジェクトへの移動を促すメッセージが表示される（Git ブランチ操作にはプロジェクト設定が必要なため。**未実装**: Git 連携とセットの要求で、現状の `start` は案内を出さない）
+- [ ] inbox のタスクデータは `~/.task-py/inbox/tasks.yaml` に保存される
+
+**実装状況**: 実装済み（`start` の案内のみ、Git 連携とともに未実装）。
 
 **優先度**: P0（必須）
 
@@ -169,11 +183,13 @@ Jira や Trello のような重厚な GUI ツールとは異なり、インス�
 開発者として、ターミナルから離れずにタスクを管理するために、CLI でタスクの作成・確認・完了・削除ができる機能が欲しい
 
 **受け入れ条件**:
-- [ ] `task add "タスク名"` でタスクが作成され、自動採番された ID が付与される
-- [ ] `task show <id>` でタスクの詳細（ID・タイトル・説明・ステータス・優先度・ブランチ・期限・作成日・更新日）が表示される
-- [ ] `task done <id>` でタスクが `completed` になる
-- [ ] `task delete <id>` でタスクが削除され、確認プロンプトが表示される
+- [ ] `task-py add "タスク名"` でタスクが作成され、自動採番された ID が付与される
+- [ ] `task-py show <id>` でタスクの詳細（ID・タイトル・説明・ステータス・優先度・ブランチ・期限・作成日・更新日）が表示される
+- [ ] `task-py done <id>` でタスクが `completed` になる
+- [ ] `task-py delete <id>` でタスクが削除され、確認プロンプトが表示される
 - [ ] 各コマンドが 100ms 以内に応答する
+
+**実装状況**: 実装済み。`show` は上記に加えて解禁日・完了日時・作業時間も表示する（ブランチは値がある場合のみ）。
 
 **優先度**: P0（必須）
 
@@ -185,12 +201,14 @@ Jira や Trello のような重厚な GUI ツールとは異なり、インス�
 開発者として、複数のプロジェクトを一つの TaskCLI で管理するために、プロジェクトの登録・切り替えができる機能が欲しい
 
 **受け入れ条件**:
-- [ ] `task project create <name>` でプロジェクトをグローバル設定（`~/.task/config.json`）に登録できる
-- [ ] `task project list` で登録済みプロジェクト一覧が表示され、アクティブなプロジェクトが強調表示される。各プロジェクトのタスク総数と `in_progress` 件数、および inbox のタスク数も合わせて表示され、全体を俯瞰できる
-- [ ] `task project use <name>` でアクティブプロジェクトを切り替えられる
-- [ ] `task inbox` でアクティブプロジェクトを解除し inbox モードに戻れる
-- [ ] `task project remove <name>` でプロジェクトをグローバル設定から削除できる（タスクデータは `~/.task/projects/<name>/` に保持）
-- [ ] `task start` / `task done --pr` などの Git 操作を含むコマンドをアクティブプロジェクト未設定のまま実行すると、`task project create` / `task project use` の実行を案内するメッセージが表示される
+- [ ] `task-py project create <name>` でプロジェクトをグローバル設定（`~/.task-py/config.yaml`）に登録できる（実装では、作成したプロジェクトが同時にアクティブになる）
+- [ ] `task-py project list` で登録済みプロジェクト一覧が表示され、アクティブなプロジェクトが強調表示される。各プロジェクトのタスク総数と `in_progress` 件数、および inbox のタスク数も合わせて表示され、全体を俯瞰できる
+- [ ] `task-py project use <name>` でアクティブプロジェクトを切り替えられる
+- [ ] `task-py inbox` でアクティブプロジェクトを解除し inbox モードに戻れる
+- [ ] `task-py project remove <name>` でプロジェクトをグローバル設定から削除できる（タスクデータは `~/.task-py/projects/<name>/` に保持）
+- [ ] `task-py start` / `task-py done --pr` などの Git 操作を含むコマンドをアクティブプロジェクト未設定のまま実行すると、`task-py project create` / `task-py project use` の実行を案内するメッセージが表示される（**未実装**: Git 連携とセットの要求）
+
+**実装状況**: 実装済み（Git 操作の案内のみ未実装）。`task-py project rename <old> <new>` も実装済みで、プロジェクト ID は変わらない。
 
 **優先度**: P0（必須）
 
@@ -202,12 +220,14 @@ Jira や Trello のような重厚な GUI ツールとは異なり、インス�
 開発者として、現在の全タスク状況を一目で把握するために、整形されたテーブル形式で一覧を確認したい
 
 **受け入れ条件**:
-- [ ] `task list` で**アクティブプロジェクトのタスク**を ID・ステータス・タイトル・ブランチ名・作成日を含むテーブルで表示する。アクティブプロジェクト未設定時は inbox のタスクを表示する
+- [ ] `task-py list` で**アクティブプロジェクトのタスク**を ID・ステータス・タイトル・ブランチ名・作成日を含むテーブルで表示する。アクティブプロジェクト未設定時は inbox のタスクを表示する（**一部未実装**: CLI の列は ID・Status・Title の3つで、ブランチ名・作成日の列は無い）
 - [ ] 1000 件のタスクでも 1 秒以内に表示される
-- [ ] `--status <status>` オプションでステータス絞り込みができる
+- [ ] `--status <status>` オプションでステータス絞り込みができる（**CLI 未実装**: 既定は `open` + `in_progress` で、`--all-status` で全ステータス。個別のステータスを指定する `--status` は無い）
 - [ ] テーブル先頭にアクティブプロジェクト名を `[Project: <name>]` の形式で表示する。アクティブプロジェクト未設定（inbox 表示）の場合は `[Inbox]` と表示する
-- [ ] GitHub 連携が設定済みの場合、プロジェクト名の右隣に `[GitHub: <owner>/<repo>]` を併記する
-- [ ] GitHub 連携が設定済みの場合、各タスク行に GitHub Issue 番号列（`Issue`）を追加表示する。Issue と紐付いていないタスクは `-` を表示する
+- [ ] GitHub 連携が設定済みの場合、プロジェクト名の右隣に `[GitHub: <owner>/<repo>]` を併記する（**未実装**）
+- [ ] GitHub 連携が設定済みの場合、各タスク行に GitHub Issue 番号列（`Issue`）を追加表示する。Issue と紐付いていないタスクは `-` を表示する（**未実装**）
+
+**実装状況**: 一部実装。`--all`（全プロジェクト + Inbox）・`--inbox` も実装済み。表示の ID は `<プロジェクト ID>-<ローカル ID>` の複合形式。
 
 **優先度**: P0（必須）
 
@@ -220,25 +240,27 @@ Jira や Trello のような重厚な GUI ツールとは異なり、インス�
 
 **受け入れ条件**:
 - [ ] タスクは `open`・`in_progress`・`completed`・`archived` の 4 ステータスを持つ
-- [ ] `task start <id>` で `in_progress` に遷移する
-- [ ] `task done <id>` で `completed` に遷移する
-- [ ] `task archive <id>` で `archived` に遷移する
-- [ ] `task list` でステータスごとに色分け表示される
+- [ ] `task-py start <id>` で `in_progress` に遷移する
+- [ ] `task-py done <id>` で `completed` に遷移する
+- [ ] `task-py archive <id>` で `archived` に遷移する
+- [ ] `task-py list` でステータスごとに色分け表示される
 
 **ステータス遷移ルール**:
 ```
-open ──(task start)──→ in_progress ──(task done)──→ completed
- │                          │                          │
- │                      ╳ 不可                         │
- │                                                      │
- └───────────────(task archive)────────────────────────┘
+open ──(task-py start)──→ in_progress ──(task-py done)──→ completed
+ │                          │                                │
+ │                      ╳ 不可                               │
+ │                                                            │
+ └───────────────(task-py archive)──────────────────────────┘
                          ↓
                      archived
 
 ※ 逆方向の遷移（再オープン）は MVP スコープ外
 ※ archived からの遷移は不可
-※ in_progress → archived への直接遷移は不可（task done で completed に遷移してから task archive を使用する）
+※ in_progress → archived への直接遷移は不可（task-py done で completed に遷移してから task-py archive を使用する）
 ```
+
+**実装状況**: 実装済み。解禁日（`scheduled_date`）が未来のタスクは `start` できない（実装済みの追加要件）。
 
 **優先度**: P0（必須）
 
@@ -252,14 +274,16 @@ open ──(task start)──→ in_progress ──(task done)──→ complete
 開発者として、作成後にタスクの内容を変更するために、タイトル・説明・優先度・期限を編集できる機能が欲しい
 
 **受け入れ条件**:
-- [ ] `task edit <id> --title "<新タイトル>"` でタイトルを変更できる
-- [ ] `task edit <id> --description "<説明>"` で説明を変更できる
-- [ ] `task edit <id> --priority <high|medium|low>` で優先度を変更できる
-- [ ] `task edit <id> --due <YYYY-MM-DD>` で期限を変更できる
-- [ ] 複数オプションを同時に指定できる（例: `task edit 1 --priority high --due 2026-04-01`）
-- [ ] `archived` ステータスのタスクは編集できない
-- [ ] 変更後に更新されたタスクの詳細が表示される
-- [x] （v1.2）`task edit <id>` をオプションなしで実行すると、対話端末では `$EDITOR` が開き、改行を含む長い説明を編集できる。非対話環境（CI・パイプ）では従来どおりオプションの指定を求めるエラーになる
+- [ ] `task-py edit <id> --title "<新タイトル>"` でタイトルを変更できる
+- [ ] `task-py edit <id> --description "<説明>"` で説明を変更できる
+- [ ] `task-py edit <id> --priority <high|medium|low>` で優先度を変更できる
+- [ ] `task-py edit <id> --due <YYYY-MM-DD>` で期限を変更できる
+- [ ] 複数オプションを同時に指定できる（例: `task-py edit 1 --priority high --due 2026-04-01`）
+- [ ] `archived` ステータスのタスクは編集できない（**未実装**: 現状は `archived` のタスクも編集できる）
+- [ ] 変更後に更新されたタスクの詳細が表示される（**未実装**: 更新したことを示すメッセージのみで、詳細は出ない）
+- [ ] （v1.2 で追加）`task-py edit <id>` をオプションなしで実行すると、対話端末では `$EDITOR` が開き、改行を含む長い説明を編集できる。非対話環境（CI・パイプ）では従来どおりオプションの指定を求めるエラーになる
+
+**実装状況**: 一部実装（上記の `archived` の編集不可と、変更後の詳細表示を除く）。期限の解除（`--due-clear`）と解禁日の設定（`--scheduled`・`--scheduled-clear`）も実装済み。変更後は「タスク ID <id> を更新しました」と表示する。
 
 **優先度**: P1（重要）。`$EDITOR` 連携は v1.2 で追加（フラグ駆動では改行を含む長文が事実上入力できなかったため）
 
@@ -273,8 +297,10 @@ open ──(task start)──→ in_progress ──(task done)──→ complete
 **受け入れ条件**:
 - [ ] `--priority <high|medium|low>` オプションで優先度を設定できる
 - [ ] `--due <YYYY-MM-DD>` オプションで期限を設定できる
-- [ ] `task list --sort priority` で優先度順に表示できる
-- [ ] 期限切れのタスクは赤色でハイライト表示される
+- [ ] `task-py list --sort priority` で優先度順に表示できる（**CLI 未実装**: Web GUI の一覧 API には並べ替えがある）
+- [ ] 期限切れのタスクは赤色でハイライト表示される（**未実装**: 赤色は優先度 `high` の表示色で、期限切れの強調ではない）
+
+**実装状況**: 一部実装（優先度・期限の設定は実装済み）。
 
 **優先度**: P1（重要）
 
@@ -286,68 +312,89 @@ open ──(task start)──→ in_progress ──(task done)──→ complete
 開発者として、多数のタスクの中から特定のものを素早く見つけるために、絞り込みと全文検索ができる機能が欲しい
 
 **受け入れ条件**:
-- [ ] `task list --status <status>` でステータスフィルタリングができる
-- [ ] `task list --priority <priority>` で優先度フィルタリングができる
-- [ ] `task search "<キーワード>"` でタイトル・説明文の全文検索ができる
+- [ ] `task-py list --status <status>` でステータスフィルタリングができる（**CLI 未実装**: 機能4を参照。`--all-status` のみ）
+- [ ] `task-py list --priority <priority>` で優先度フィルタリングができる（**CLI 未実装**: Web GUI の一覧 API にはある）
+- [ ] `task-py search "<キーワード>"` でタイトル・説明文の全文検索ができる
+
+**実装状況**: 一部実装（検索のみ。大文字小文字を区別しない部分一致で、アクティブプロジェクトまたは inbox が対象）。
 
 **優先度**: P1（重要）
 
 ---
 
-#### 9. タスクと Git ブランチの自動連携 — 実行 (Engage)
+#### 9. タスクと Git ブランチの自動連携 — 実行 (Engage)【未実装】
+
+**実装状況**: **Python 版には未実装**。要求として残している。設計案は `docs/functional-design.md` の「未実装の設計（Git・GitHub 連携 P1）」節。`Task.branch` は TypeScript 版からの移行データを表示するための欄として残るだけで、`task-py start` はブランチを作らない。
 
 **ユーザーストーリー**:
-開発者として、タスクと作業ブランチを常に紐付けるために、`task start` 実行時に自動でブランチが作成・切り替えされる機能が欲しい
+開発者として、タスクと作業ブランチを常に紐付けるために、`task-py start` 実行時に自動でブランチが作成・切り替えされる機能が欲しい
 
 **受け入れ条件**:
-- [ ] `task start <id>` を実行すると `feature/task-<id>-<タスク名のslug>` ブランチが自動作成される
+- [ ] `task-py start <id>` を実行すると `feature/task-<id>-<タスク名のslug>` ブランチが自動作成される
 - [ ] ブランチ作成後、自動でそのブランチにチェックアウトされる
-- [ ] `task list` にブランチ名の列が表示され、紐付けが一目でわかる
+- [ ] `task-py list` にブランチ名の列が表示され、紐付けが一目でわかる
 - [ ] 既存ブランチがある場合はチェックアウトのみ行う
 - [ ] Git リポジトリが存在しない環境では警告を表示し、ブランチ操作をスキップしてタスクのステータスのみ更新する
-- [ ] `task start <id>` 実行時に `.git/hooks/prepare-commit-msg` フックを自動インストールし、`git commit` 時にコミットメッセージ末尾へ `[Task #<id>]` を自動付与する
+- [ ] `task-py start <id>` 実行時に `.git/hooks/prepare-commit-msg` フックを自動インストールし、`git commit` 時にコミットメッセージ末尾へ `[Task #<id>]` を自動付与する
 - [ ] フックのインストール確認プロンプトを表示し、拒否した場合は手動テンプレートをメッセージで案内する
 
 **優先度**: P1（重要）
 
 ---
 
-#### 10. タスク完了時の自動処理 — 実行 (Engage)
+#### 10. タスク完了時の自動処理 — 実行 (Engage)【未実装】
+
+**実装状況**: **Python 版には未実装**（機能9と同じ）。`task-py done` に `--pr` オプションは無い。
 
 **ユーザーストーリー**:
-開発者として、タスク完了時の手作業を減らすために、`task done` 実行時に PR 作成を自動化できる機能が欲しい
+開発者として、タスク完了時の手作業を減らすために、`task-py done` 実行時に PR 作成を自動化できる機能が欲しい
 
 **受け入れ条件**:
-- [ ] `task done <id> --pr` を実行すると、現在のブランチをベースブランチ（`main`）に向けた GitHub PR が自動作成される
+- [ ] `task-py done <id> --pr` を実行すると、現在のブランチをベースブランチ（`main`）に向けた GitHub PR が自動作成される
 - [ ] PR のタイトルにはタスク名、本文にはタスクの説明が自動入力される
 - [ ] PR 作成前に確認プロンプトが表示される
 - [ ] PR 作成成功後に PR の URL が表示される
 - [ ] 各ステップの成功・失敗が明確にフィードバックされる
 - [ ] **ブランチのマージは自動化しない**（PR 作成のみ。マージはレビュー後に手動で行う）
-- [ ] `task start` を実行していない（ブランチが存在しない）状態で `--pr` を指定した場合、エラーメッセージと対処法が表示される
+- [ ] `task-py start` を実行していない（ブランチが存在しない）状態で `--pr` を指定した場合、エラーメッセージと対処法が表示される
 
 **優先度**: P1（重要）
 
 ---
 
-#### 11. GitHub Issues との同期 — 実行 (Engage)
+#### 11. GitHub Issues との同期 — 実行 (Engage)【未実装】
+
+**実装状況**: **Python 版には未実装**（機能9と同じ）。`task-py config` / `sync` / `import` コマンドは存在しない。
 
 **ユーザーストーリー**:
 開発者として、GitHub でも進捗を共有するために、ローカルタスクと GitHub Issues を同期できる機能が欲しい
 
 **受け入れ条件**:
-- [ ] `task config setup` を実行すると、GitHub Token・オーナー名・リポジトリ名を対話式プロンプトで一括設定できる
-- [ ] `task config setup` は各項目の入力後にバリデーションを行い、不正な値の場合は再入力を促す
-- [ ] `task config setup` 完了時に `[GitHub: <owner>/<repo>]` の形式で設定内容を表示する
-- [ ] `task config set github-token <token>` で Personal Access Token を個別設定でき、`~/.task/projects/<name>/config.json`（パーミッション `600`）に保存される
-- [ ] `task config set github-owner <owner>` で対象リポジトリのオーナー名（ユーザー名または組織名）を個別設定できる
-- [ ] `task config set github-repo <repo>` で対象リポジトリ名を個別設定できる
-- [ ] GitHub 連携機能を未設定の状態で使用すると、`task config setup` の実行を案内するメッセージが表示される
-- [ ] `task sync` でローカルタスクと GitHub Issues の双方向同期ができる
-- [ ] `task import --github` で GitHub Issues からタスクをインポートできる
+- [ ] `task-py config setup` を実行すると、GitHub Token・オーナー名・リポジトリ名を対話式プロンプトで一括設定できる
+- [ ] `task-py config setup` は各項目の入力後にバリデーションを行い、不正な値の場合は再入力を促す
+- [ ] `task-py config setup` 完了時に `[GitHub: <owner>/<repo>]` の形式で設定内容を表示する
+- [ ] `task-py config set github-token <token>` で Personal Access Token を個別設定でき、プロジェクト別の設定ファイル（パーミッション `600`）に保存される
+- [ ] `task-py config set github-owner <owner>` で対象リポジトリのオーナー名（ユーザー名または組織名）を個別設定できる
+- [ ] `task-py config set github-repo <repo>` で対象リポジトリ名を個別設定できる
+- [ ] GitHub 連携機能を未設定の状態で使用すると、`task-py config setup` の実行を案内するメッセージが表示される
+- [ ] `task-py sync` でローカルタスクと GitHub Issues の双方向同期ができる
+- [ ] `task-py import --github` で GitHub Issues からタスクをインポートできる
 - [ ] ネットワークエラー時は原因と対処法を含むエラーメッセージを表示する
 
 **優先度**: P1（重要）
+
+---
+
+### 実装済みの追加機能（Python 版）
+
+PRD 作成後に実装した機能のうち、要求として明示していなかったもの。挙動の正は `docs/functional-design.md`。
+
+- **デイリールーティーン**: 毎日やることを登録し、今日の済・未を管理する（`task-py daily ...`）。日別の達成率を表示する
+- **概況表示**: `task-py overview` が、アクティブプロジェクト・今日の毎日やること・今とりかかるべきタスク・全プロジェクトの未着手・進行中のタスクを一画面に出す
+- **解禁日**: `task-py schedule <id> [date]`。解禁日より前は `start` できない
+- **MCP サーバー**: `task-mcp`。Claude との会話からタスクを操作できる
+- **インタラクティブシェル**: `task-py shell`（コマンド・オプションの補完付き）
+- **移行・リセット**: `task-py migrate`（TypeScript 版の `~/.task/` から移行）・`task-py reset`
 
 ---
 
@@ -355,7 +402,7 @@ open ──(task start)──→ in_progress ──(task done)──→ complete
 
 > **13. 作業時間の記録は v1.2 で実装済み**（GUI 導入の土台として前倒しした）。本節に残しているのは経緯の記録のためで、未実装なのは 12・14・15 である。
 
-#### 12. チーム機能
+#### 12. チーム機能【未実装】
 
 チームメンバー全員のタスク状況を一覧表示し、タスクのアサインができる。
 
@@ -365,15 +412,15 @@ open ──(task start)──→ in_progress ──(task done)──→ complete
 
 #### 13. 作業時間の記録 ✅ 実装済み（v1.2）
 
-タイマー（`task time start --task <id>`）または手動記録（`task time log`）でタスクごとの作業時間を記録し、集計できる。あわせて完了日時（`completed_at`）を記録し、完了後の編集で失われないようにした。
+タイマー（`task-py time start --task <id>`）または手動記録（`task-py time log`）でタスクごとの作業時間を記録し、集計できる。あわせて完了日時（`completed_at`）を記録し、完了後の編集で失われないようにした。
 
-当初は「`task start` から `task done` までの経過時間を自動記録」を想定していたが、**タイマーによる明示的な計測**を採る。`task start` は MCP からも呼ばれるため暗黙の副作用を持ち込みたくないこと、および「開始したまま数日放置したタスク」の経過時間は作業時間として意味を成さないことによる。
+当初は「`task-py start` から `task-py done` までの経過時間を自動記録」を想定していたが、**タイマーによる明示的な計測**を採る。`task-py start` は MCP からも呼ばれるため暗黙の副作用を持ち込みたくないこと、および「開始したまま数日放置したタスク」の経過時間は作業時間として意味を成さないことによる。
 
 **優先度**: ~~P2（できれば）~~ → **実装済み**（GUI 導入の土台として前倒し）
 
 ---
 
-#### 14. タスクテンプレート
+#### 14. タスクテンプレート【未実装】
 
 よく使うタスクのひな形（バグ修正、機能追加など）をテンプレートとして保存し、再利用できる。
 
@@ -381,7 +428,7 @@ open ──(task start)──→ in_progress ──(task done)──→ complete
 
 ---
 
-#### 15. カレンダー表示
+#### 15. カレンダー表示【未実装】
 
 期限を設定したタスクを週・月単位のカレンダー形式で表示できる。
 
@@ -391,46 +438,58 @@ open ──(task start)──→ in_progress ──(task done)──→ complete
 
 ### CLI インターフェース
 
+#### 実装済み
+
 ```bash
 # プロジェクト管理（P0）
-task project create <name>        # プロジェクトをグローバル設定に登録
-task project list                 # 登録済みプロジェクト一覧（アクティブを強調表示）
-task project use <name>           # アクティブプロジェクトを切り替え
-task project remove <name>        # プロジェクトをグローバル設定から削除（タスクデータは保持）
+task-py project create <name>        # プロジェクトをグローバル設定に登録
+task-py project list                 # 登録済みプロジェクト一覧（アクティブを強調表示）
+task-py project use <name>           # アクティブプロジェクトを切り替え
+task-py project remove <name>        # プロジェクトをグローバル設定から削除（タスクデータは保持）
 
 # Inbox 操作（P0）
-task inbox                        # inbox モードに切り替え（アクティブプロジェクトを解除）
-task list --inbox                 # inbox のタスク一覧
-task move <id> <project>          # inbox のタスクをプロジェクトに移動
-task move <id> inbox              # プロジェクトのタスクを inbox に戻す
+task-py inbox                        # inbox モードに切り替え（アクティブプロジェクトを解除）
+task-py list --inbox                 # inbox のタスク一覧
+task-py move <id> <project>          # inbox のタスクをプロジェクトに移動
+task-py move <id> inbox              # プロジェクトのタスクを inbox に戻す
 
 # タスクの基本操作（P0）
-task add "ユーザー認証機能の実装"
-task add "バグ修正: ログイン画面のNullPointerException" --priority high --due 2025-03-01
-task list
-task list --status in_progress
-task show 1
-task start 1          # ステータスを in_progress に変更 + ブランチ自動作成
-task done 1           # ステータスを completed に変更
-task delete 1
-task archive 1
+task-py add "ユーザー認証機能の実装"
+task-py add "バグ修正: ログイン画面のNullPointerException" --priority high --due 2025-03-01
+task-py list
+task-py list --all-status
+task-py show 1
+task-py start 1          # ステータスを in_progress に変更
+task-py done 1           # ステータスを completed に変更
+task-py delete 1
+task-py archive 1
 
-# 絞り込み・検索（P1）
-task list --priority high
-task search "認証"
+# 検索・編集（P1）
+task-py search "認証"
+task-py edit 1 --title "新しいタイトル"
+task-py edit 1 --priority high --due 2026-04-01
+```
 
-# タスク編集（P1）
-task edit 1 --title "新しいタイトル"
-task edit 1 --priority high --due 2026-04-01
+#### 【未実装】要求のみ
+
+```bash
+# 絞り込み・並べ替え（P1。CLI には無い。Web GUI の一覧 API にはある）
+task-py list --status in_progress
+task-py list --priority high
+task-py list --sort priority
+
+# Git ブランチ連携（P1）
+task-py start 1          # ブランチ自動作成を伴う
+task-py done 1 --pr      # PR 自動作成
 
 # GitHub 連携（P1）
-task config setup     # 対話式で GitHub 連携を初期設定
-task sync             # ローカルタスクと GitHub Issues を同期
-task import --github  # GitHub Issues からインポート
+task-py config setup     # 対話式で GitHub 連携を初期設定
+task-py sync             # ローカルタスクと GitHub Issues を同期
+task-py import --github  # GitHub Issues からインポート
 
 # チーム機能（P2）
-task list --team
-task assign 1 @alice
+task-py list --team
+task-py assign 1 @alice
 ```
 
 ---
@@ -439,40 +498,44 @@ task assign 1 @alice
 
 ### タスク (Task)
 
+実装は `src/task_cli/models/task.py`（pydantic）。
+
 | フィールド | 型 | 必須 | 説明 |
 |-----------|---|------|------|
-| id | number | 必須 | 自動採番（1 始まり、削除しても欠番のまま再利用しない） |
-| title | string | 必須 | タスク名（最大 200 文字） |
-| description | string | 任意 | 詳細説明（Markdown 可） |
-| status | enum | 必須 | `open` / `in_progress` / `completed` / `archived` |
-| priority | enum | 任意 | `high` / `medium` / `low`（未設定時は `medium` 扱い） |
-| branch | string | 任意 | 紐付いた Git ブランチ名（`task start` 時に自動設定） |
-| dueDate | string | 任意 | 期限（YYYY-MM-DD 形式） |
-| createdAt | string | 必須 | 作成日時（ISO 8601 形式） |
-| updatedAt | string | 必須 | 最終更新日時（ISO 8601 形式） |
+| id | int | 必須 | 自動採番（1 始まり。**最大の ID + 1** で採番するため、最大 ID のタスクを削除するとその ID が再利用される）。保存先（プロジェクト・Inbox）ごとに独立 |
+| title | string | 必須 | タスク名（1〜200 文字） |
+| description | string | 任意 | 詳細説明（Markdown 可）。既定は空文字 |
+| status | enum | 必須 | `open` / `in_progress` / `completed` / `archived`（既定 `open`） |
+| priority | enum | 任意 | `high` / `medium` / `low`（既定 `medium`） |
+| branch | string | 任意 | 紐付いた Git ブランチ名。**Git 連携が未実装のため `task-py start` では設定されない**（TypeScript 版からの移行データの表示用） |
+| due_date | string | 任意 | 期限（YYYY-MM-DD 形式） |
+| scheduled_date | string | 任意 | 解禁日（YYYY-MM-DD 形式）。この日より前は `start` できない |
+| created_at | string | 必須 | 作成日時（ISO 8601 形式） |
+| updated_at | string | 必須 | 最終更新日時（ISO 8601 形式） |
+| completed_at | string | 任意 | 完了日時。`completed` になった時刻（移行前の完了済みタスクは値を持たない） |
+| work_sessions | list | 任意 | 作業セッション（開始・終了・秒数・記録元）。合計が作業時間になる |
 
 ### 保存形式
 
-タスクデータは以下のパスに JSON 配列として保存する:
+タスクデータは以下のパスに YAML のリストとして保存する:
 
-- **プロジェクトタスク**: `~/.task/projects/<name>/tasks.json`
-- **Inbox タスク**: `~/.task/inbox/tasks.json`（プロジェクト未割り当てタスクの保管先）
+- **プロジェクトタスク**: `~/.task-py/projects/<name>/tasks.yaml`
+- **Inbox タスク**: `~/.task-py/inbox/tasks.yaml`（プロジェクト未割り当てタスクの保管先）
 
-保存例 (`~/.task/projects/dev-tasks2/tasks.json`):
-```json
-[
-  {
-    "id": 1,
-    "title": "ユーザー認証機能の実装",
-    "description": "",
-    "status": "in_progress",
-    "priority": "high",
-    "branch": "feature/task-1-user-authentication",
-    "dueDate": "2026-03-31",
-    "createdAt": "2026-02-22T10:00:00Z",
-    "updatedAt": "2026-02-22T11:30:00Z"
-  }
-]
+保存例 (`~/.task-py/projects/dev-tasks2/tasks.yaml`):
+```yaml
+- id: 1
+  title: ユーザー認証機能の実装
+  description: ''
+  status: in_progress
+  priority: high
+  branch: null
+  due_date: '2026-03-31'
+  created_at: '2026-02-22T10:00:00Z'
+  updated_at: '2026-02-22T11:30:00Z'
+  completed_at: null
+  scheduled_date: null
+  work_sessions: []
 ```
 
 ---
@@ -483,11 +546,11 @@ task assign 1 @alice
 - コマンド実行時間: 100ms 以内（ネットワーク不要の操作）
   - 測定基準: RAM 8GB・SSD 搭載・タスク数 100 件以下の環境
 - タスク一覧表示: 1,000 件まで 1 秒以内（上記同環境）
-- GitHub API 呼び出しを含む操作: タイムアウトを 5 秒に設定し、超過時はエラーを返す
+- GitHub API 呼び出しを含む操作: タイムアウトを 5 秒に設定し、超過時はエラーを返す（GitHub 連携は未実装）
 
 ### ユーザビリティ
 - 新規ユーザーが 5 分以内に基本操作（add / list / start / done）を習得できる
-- `task --help` および `task <subcommand> --help` で全機能を確認できる
+- `task-py --help` および `task-py <subcommand> --help` で全機能を確認できる
 - エラーメッセージには原因と対処法を含める（以下フォーマットに統一）:
   ```
   [Error] <エラーの概要>
@@ -496,27 +559,29 @@ task assign 1 @alice
   ```
   例:
   ```
-  [Error] Git リポジトリが見つかりません。
-    原因: カレントディレクトリに .git が存在しません。
-    対処: Git リポジトリのルートディレクトリで実行してください。
+  [Error] 期限の値が正しくありません。
+    原因: 期限に 'bogus' が指定されました。
+    対処: YYYY-MM-DD の形式で指定してください（例: 2026-12-31）。
   ```
 
 ### 信頼性
-- データ損失ゼロ: タスクデータは `~/.task/projects/<name>/tasks.json` に保存し、書き込み前にバックアップを作成する
+- データ損失ゼロ: タスクデータは `~/.task-py/projects/<name>/tasks.yaml` に保存し、書き込み前にバックアップ（`.bak`）を作成する。書き込みは一時ファイルへ書いてから置き換える方式で、書きかけのファイルを残さない。更新は排他制御する
+- 保存先ファイルが壊れていた場合は、原因（ファイルと行）と対処を示して中断する（自動復旧はしない）
 - 危険な操作（delete など）には確認プロンプトを表示する
-- Git 操作に失敗した場合は元のブランチに自動で戻す
+- Git 操作に失敗した場合は元のブランチに自動で戻す（Git 連携は未実装）
 
 ### セキュリティ
-- GitHub Personal Access Token は `~/.task/projects/<name>/config.json` に保存し、パーミッションを `600` に設定する
-- タスクデータはグローバルストレージ（`~/.task/`）に保存されるため、Git リポジトリへの混入を防ぐ設定は不要
+- GitHub Personal Access Token は、プロジェクト別の設定ファイルにパーミッション `600` で保存する（GitHub 連携は未実装）
+- `~/.task-py/` 以下のディレクトリはオーナーのみアクセス可能（`0700`）にする
+- タスクデータはグローバルストレージ（`~/.task-py/`）に保存されるため、Git リポジトリへの混入を防ぐ設定は不要
 
 ### スケーラビリティ
 - タスク数が 10,000 件を超えた場合でも基本操作のパフォーマンスを維持する
-- データストア: MVP は JSON ファイル、パフォーマンス問題が発生した際は SQLite に移行する
+- データストア: MVP は YAML ファイル、パフォーマンス問題が発生した際は SQLite に移行する
 
 ### クロスプラットフォーム
-- macOS・Linux・Windows（Git Bash 環境）で動作する
-- Node.js v20 以上をサポートする（v18 は EOL のため対象外）
+- macOS・Linux で動作する。Windows は、排他制御（`fcntl.flock`）が使えない環境ではロックなしに縮退する（ベストエフォート。サポート範囲は未決）
+- Python 3.12 以上をサポートする。インストールは `uv tool install` を使う
 
 ---
 
@@ -525,7 +590,7 @@ task assign 1 @alice
 | フェーズ | 対象機能 | 目標リリース日 |
 |---------|---------|--------------|
 | v1.0 MVP（P0） | タスク基本操作・ステータス管理・Inbox・プロジェクト管理・テーブル表示 | 2026-04-30 |
-| v1.1（P1） | Git ブランチ自動連携・絞り込み・検索・タスク編集・優先度/期限・GitHub Issues 連携・完了時 PR 自動作成 | 2026-06-30 |
+| v1.1（P1） | 編集・優先度/期限・検索（実装済み）。**未実装**: Git ブランチ自動連携・GitHub Issues 連携・完了時 PR 自動作成・`list` の絞り込み/並べ替えオプション | 2026-06-30（一部のみ） |
 | v1.2 | 完了日時の記録・タイマーの永続化とタスク連携・作業時間記録・`$EDITOR` 連携（GUI 導入の土台） | 2026-09-05（実装済み） |
 | v1.3 | 書き込みのプロジェクト明示指定・YAML の排他制御とアトミック書き込み（GUI 導入の土台） | 2026-09-06（実装済み） |
 | v1.4 | **ローカル Web GUI の読み取り面**（一覧・詳細・検索・要約・他プロセスの変更の反映） | 2026-09-07（実装済み） |
@@ -544,7 +609,7 @@ task assign 1 @alice
 - クラウド同期サービス（Git 経由の同期のみ）
 - Slack・Discord 通知機能（P2 以降で検討）
 - タスクへのコメント・添付ファイル機能
-- プロジェクトディレクトリへの `.task/` ディレクトリ作成（グローバルストレージ `~/.task/` に一元管理するため不要）
+- プロジェクトディレクトリへの `.task/` ディレクトリ作成（グローバルストレージ `~/.task-py/` に一元管理するため不要）
 
 ### ローカル GUI についての注記（2026-09-05 決定）
 
