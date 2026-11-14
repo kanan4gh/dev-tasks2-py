@@ -52,3 +52,60 @@ class TestGetPrompt:
     def test_shows_inbox_when_no_project(self, tmp_path: Path) -> None:
         svc = self._make_service(tmp_path, None)
         assert get_prompt(svc) == "task [inbox]> "
+
+
+# --- 補完(Issue #36) ---
+
+from prompt_toolkit.completion import CompleteEvent  # noqa: E402
+from prompt_toolkit.document import Document  # noqa: E402
+
+from task_cli.cli.main import app as _app  # noqa: E402
+from task_cli.cli.shell import build_completer  # noqa: E402
+
+
+def _complete(text: str) -> list[str]:
+    completer = build_completer(_app)
+    return [c.text for c in completer.get_completions(Document(text), CompleteEvent())]
+
+
+class TestCompleter:
+    def test_completes_command_names(self) -> None:
+        assert "list" in _complete("lis")
+        assert "add" not in _complete("lis")
+
+    def test_completes_group_subcommands(self) -> None:
+        assert "create" in _complete("project cr")
+        assert "create" in _complete("project ")
+
+    def test_completes_option_names_of_the_command(self) -> None:
+        got = _complete("list --")
+        assert "--all" in got
+        assert "--inbox" in got
+
+    def test_completes_enum_values_after_option(self) -> None:
+        assert set(_complete("add x --priority ")) == {"high", "medium", "low"}
+        assert _complete("add x --priority h") == ["high"]
+
+    def test_short_option_also_completes_values(self) -> None:
+        assert set(_complete("add x -p ")) == {"high", "medium", "low"}
+
+    def test_options_complete_again_after_a_value(self) -> None:
+        got = _complete("add x --priority high --")
+        assert "--due" in got
+        assert "--description" in got
+
+    def test_no_candidates_after_unknown_command(self) -> None:
+        assert _complete("nosuchcommand ") == []
+        assert _complete("nosuchcommand --") == []
+
+    def test_no_completion_inside_or_right_after_a_quoted_word(self) -> None:
+        # クォートを外した語で置き換えると入力行が壊れるので、何も出さない
+        assert _complete('add "a b') == []
+        assert _complete('add "lis"') == []
+
+    def test_completes_after_a_quoted_word_and_space(self) -> None:
+        assert "--priority" in _complete('add "my task" --pri')
+
+    def test_empty_input_lists_commands(self) -> None:
+        got = _complete("")
+        assert "list" in got and "project" in got
