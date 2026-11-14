@@ -1,14 +1,11 @@
 from pathlib import Path
 from datetime import datetime, timezone
 
+from task_cli.clock import today_str as _today_str
 from task_cli.exceptions import AppError
 from task_cli.models.daily import DailyLogEntry, Routine
 from task_cli.storage.daily_log_storage import DailyLogStorage
 from task_cli.storage.routine_storage import RoutineStorage
-
-
-def _today_str() -> str:
-    return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
 
 
 class DailyService:

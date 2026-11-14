@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from datetime import datetime, timezone
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
@@ -10,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from task_cli.clock import today_str
 from task_cli.duration import format_duration
 from task_cli.exceptions import AppError
 from task_cli.models.task import GlobalConfig, Priority, Task, TaskStatus
@@ -74,11 +74,6 @@ def render_task_table(
     console.print(table)
 
 
-def _today() -> str:
-    """`start` の判定（services/task_manager.py）と同じ「今日」の定義。ずらさないこと。"""
-    return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
-
-
 def render_task_detail(
     task: Task,
     active_project: str | None,
@@ -102,7 +97,7 @@ def render_task_detail(
         lines.append(f"[bold]Due[/bold]      {task.due_date}")
     if task.scheduled_date:
         # 解禁日は `start` の可否を決める。未来なら、そのことも見せる
-        note = "  [yellow]（まだ着手できません）[/yellow]" if task.scheduled_date > _today() else ""
+        note = "  [yellow]（まだ着手できません）[/yellow]" if task.scheduled_date > today_str() else ""
         lines.append(f"[bold]Sched[/bold]    {task.scheduled_date}{note}")
     lines.append(f"[bold]Created[/bold]  {task.created_at.strftime('%Y-%m-%d %H:%M')}")
     lines.append(f"[bold]Updated[/bold]  {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
