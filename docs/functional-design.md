@@ -1,17 +1,19 @@
 # 機能設計書 (Functional Design Document)
 
+本書は **Python 版（`task-py`）の実装を正とする**。構造・ファイルパスは `docs/repository-structure.md`、層構造と永続化方式は `docs/architecture.md` を参照する。Git・GitHub 連携は Python 版に実装がなく、設計だけを末尾の「未実装の設計」節に残している。
+
 ## 対象バージョン
 
 | バージョン | 対象機能 |
 |-----------|---------|
-| v1.0 MVP（P0） | タスク基本操作・Inbox・プロジェクト管理・ステータス管理・テーブル表示 |
-| v1.1（P1） | Git ブランチ自動連携・コミット自動タグ付け・絞り込み・検索・タスク編集・優先度/期限管理・GitHub Issues 連携・PR 自動作成 |
+| v1.0 MVP（P0） | タスク基本操作・Inbox・プロジェクト管理・ステータス管理・テーブル表示。あわせてルーティーン管理・概況表示（`overview`）・タイマーも実装済み |
+| v1.1（P1） | **実装済み**: ステータスによる絞り込み・検索・タスク編集・優先度/期限管理。**未実装**: Git ブランチ自動連携・コミット自動タグ付け・GitHub Issues 連携・PR 自動作成（末尾の「未実装の設計」節） |
 | v1.2 | 完了日時の記録・タイマーの永続化とタスク連携・作業時間の記録・`$EDITOR` 連携（GUI 導入の土台） |
 | v1.3 | 書き込みのプロジェクト明示指定・YAML の排他制御とアトミック書き込み（GUI 導入の土台） |
 | v1.4 | ローカル Web GUI の読み取り面（下記「ローカル Web GUI」節） |
 | v1.5 | ローカル Web GUI の書き込み面（同節「書き込み」）と、書き込み経路の入力検証 |
 
-※ P2 のうち**作業時間記録は v1.2 で実装済み**（下記「タイマー・作業時間」節）。チーム機能・テンプレート・カレンダーは本設計書の対象外。
+※ P2 のうち**作業時間記録は v1.2 で実装済み**（下記「タイマー・作業時間」節）。解禁日（`schedule`）と MCP サーバーも実装済み。チーム機能・テンプレート・カレンダーは本設計書の対象外。
 
 ---
 
@@ -20,255 +22,274 @@
 ```mermaid
 graph TB
     User[ユーザー]
-    CLI[CLIレイヤー<br/>Commander.js]
-    TaskMgr[TaskManager<br/>タスク管理]
-    GitSvc[GitService<br/>Git操作 ※P1]
-    GHSvc[GitHubService<br/>GitHub API ※P1]
-    GlobalCfgSvc[GlobalConfigService<br/>グローバル設定管理]
-    CfgSvc[ConfigService<br/>プロジェクト設定管理]
+
+    subgraph Entry[入口]
+        CLI[CLI<br/>task-py / typer]
+        MCP[MCPサーバー<br/>task-mcp]
+        Web[ローカル Web GUI<br/>task-web]
+    end
+
+    UseCase[usecases<br/>TaskCrudUseCase / TimeTrackingUseCase]
+    TaskMgr[TaskManager<br/>タスクのCRUD・ステータス遷移]
+    ProjSvc[ProjectService<br/>プロジェクト管理]
+    GlobalCfgSvc[GlobalConfigService<br/>アクティブプロジェクト]
+    DailySvc[DailyService<br/>ルーティーン]
+    TimerSvc[TimerService<br/>タイマー状態]
+
     FileStore[FileStorage<br/>タスク永続化]
     GlobalCfgStore[GlobalConfigStorage<br/>グローバル設定永続化]
-    CfgStore[ConfigStorage<br/>プロジェクト設定永続化]
-    GlobalConfigJSON[(~/.task/config.json)]
-    InboxJSON[(~/.task/inbox/tasks.json)]
-    TasksJSON[(~/.task/projects/name/tasks.json)]
-    ProjConfigJSON[(~/.task/projects/name/config.json)]
-    GitRepo[(Gitリポジトリ ※P1)]
-    GitHubAPI[(GitHub REST API v3 ※P1)]
+    RoutineStore[RoutineStorage / DailyLogStorage<br/>ルーティーン永続化]
+    TimerStore[TimerStorage<br/>タイマー永続化]
 
-    User --> CLI
-    CLI --> TaskMgr
-    CLI --> GitSvc
-    CLI --> GHSvc
-    CLI --> GlobalCfgSvc
-    CLI --> CfgSvc
-    TaskMgr --> FileStore
+    GlobalConfigYAML[(~/.task-py/config.yaml)]
+    InboxYAML[(~/.task-py/inbox/tasks.yaml)]
+    TasksYAML[(~/.task-py/projects/name/tasks.yaml)]
+    DailyYAML[(~/.task-py/daily/routines.yaml<br/>~/.task-py/daily/log.yaml)]
+    TimerYAML[(~/.task-py/timer.yaml)]
+
+    User --> Entry
+    Entry --> UseCase
+    Entry --> ProjSvc
+    Entry --> DailySvc
+    UseCase --> TaskMgr
+    UseCase --> GlobalCfgSvc
+    UseCase --> TimerSvc
+    ProjSvc --> GlobalCfgStore
     GlobalCfgSvc --> GlobalCfgStore
-    CfgSvc --> CfgStore
-    GHSvc --> GitHubAPI
-    GitSvc --> GitRepo
-    FileStore --> TasksJSON
-    FileStore --> InboxJSON
-    GlobalCfgStore --> GlobalConfigJSON
-    CfgStore --> ProjConfigJSON
+    TaskMgr --> FileStore
+    DailySvc --> RoutineStore
+    TimerSvc --> TimerStore
+    FileStore --> TasksYAML
+    FileStore --> InboxYAML
+    GlobalCfgStore --> GlobalConfigYAML
+    RoutineStore --> DailyYAML
+    TimerStore --> TimerYAML
 ```
+
+CLI・MCP サーバー・Web GUI は同じ `~/.task-py/` を読み書きする3つの入口で、依存は外から内への一方向である（層の定義は `docs/architecture.md`）。
 
 ---
 
 ## 技術スタック
 
-| 分類 | 技術 | 選定理由 |
-|------|------|----------|
-| 言語 | TypeScript 5.x | 型安全性・補完による開発効率向上 |
-| CLIフレームワーク | Commander.js | 学習コストが低く、機能が十分 |
-| Git操作 | simple-git | Node.jsからGit操作を抽象化するデファクトライブラリ |
-| GitHub連携 | GitHub REST API v3 | PAT認証で手軽に利用可能 |
-| テスト | Vitest | TypeScriptネイティブ対応、高速 |
-| パッケージマネージャー | npm | プロジェクト標準 |
-| ランタイム | Node.js v20以上 | v18 は EOL のため v20 LTS 以上を必須とする。開発環境は v24.11.0 を使用。 |
+| 分類 | 技術 | 用途 |
+|------|------|------|
+| 言語 | Python 3.12 | |
+| パッケージマネージャー | uv | 依存解決・仮想環境・`uv.lock` による再現性 |
+| CLIフレームワーク | typer | コマンド解析・ヘルプ・補完 |
+| データモデル | pydantic | モデル定義と保存前の検証 |
+| データ保存 | pyyaml | `~/.task-py/` 以下の YAML ファイル |
+| ターミナル表示 | rich | テーブル・パネル・色分け |
+| インタラクティブシェル | prompt-toolkit | `task-py shell` |
+| MCP | mcp[cli] | `task-mcp`（stdio） |
+| Web | starlette / uvicorn / sse-starlette | `task-web`（画面は React を同梱。ビルド工程なし） |
+| テスト | pytest / pytest-cov | |
+| 型チェック | basedpyright | |
+| リンター | ruff | |
+
+選定の理由と代替案は `docs/architecture.md` を参照する。
 
 ---
 
 ## データモデル定義
 
-### エンティティ: Task
+モデルは `src/task_cli/models/` の pydantic `BaseModel`。フィールド名は snake_case で、YAML にもそのまま保存される。
 
-```typescript
-type TaskStatus = 'open' | 'in_progress' | 'completed' | 'archived';
-type TaskPriority = 'high' | 'medium' | 'low';
+### エンティティ: Task (`src/task_cli/models/task.py`)
 
-interface Task {
-  id: number;              // ローカル ID（プロジェクト内で自動採番、1始まり、欠番は再利用しない）
-                           // 表示時は複合 ID 形式: <projectId>-<localId>（例: 1-3）
-                           // Inbox タスクは 0-<localId>（例: 0-2）
-  title: string;           // タスク名（1〜200文字）
-  description: string;     // 詳細説明（Markdown可、デフォルト空文字）
-  status: TaskStatus;      // ステータス（デフォルト: 'open'）
-  priority: TaskPriority;  // 優先度（デフォルト: 'medium'）
-  branch: string | null;   // 紐付いたGitブランチ名（task start時に設定）
-  dueDate: string | null;  // 期限（YYYY-MM-DD形式）
-  createdAt: string;       // 作成日時（ISO 8601形式）
-  updatedAt: string;       // 最終更新日時（ISO 8601形式）
-}
-```
+| フィールド | 型 | 既定 | 説明 |
+|---|---|---|---|
+| `id` | `int` | — | ローカル ID。保存先（プロジェクトまたは Inbox）ごとに採番する。表示では複合 ID `<projectId>-<localId>`（例: `1-3`）、Inbox は `0-<localId>`（例: `0-2`）。コマンドの引数には `localId`（整数）を渡す。複合 ID（`1-3`）は表示用で、引数には渡せない |
+| `title` | `str` | — | タスク名（1〜200 文字） |
+| `description` | `str` | `""` | 詳細説明（Markdown 可） |
+| `status` | `TaskStatus` | `open` | `open` / `in_progress` / `completed` / `archived` |
+| `priority` | `Priority` | `medium` | `high` / `medium` / `low` |
+| `branch` | `str \| None` | `None` | 移行データから引き継ぐ表示用の欄。Python 版は設定しない（Git 連携は未実装） |
+| `due_date` | `str \| None` | `None` | 期限（`YYYY-MM-DD`） |
+| `scheduled_date` | `str \| None` | `None` | 解禁日（`YYYY-MM-DD`）。この日より前は `start` できない |
+| `created_at` / `updated_at` | `datetime` | 現在時刻（UTC） | 作成・最終更新日時（ISO 8601） |
+| `completed_at` | `datetime \| None` | `None` | 完了日時（v1.2） |
+| `work_sessions` | `list[WorkSession]` | `[]` | 作業セッションの履歴（v1.2） |
+
+`total_worked_seconds` は `work_sessions` から計算する値で、永続化しない。
 
 **制約**:
-- `id`: 正の整数。削除しても欠番のまま再利用しない
-- `title`: 必須、1〜200文字
-- `status`: `'open'` → `'in_progress'` → `'completed'` の一方向遷移。`'archived'` へは `'open'` または `'completed'` からのみ遷移可能（`'in_progress'` → `'archived'` は不可）
-- `dueDate`: `YYYY-MM-DD` 形式。不正な日付は受け付けない
+- `id`: 正の整数。採番は「その保存先の現在の最大 ID + 1」。最大 ID のタスクを削除すると、その番号は次の追加で再び使われる。`move` では移動先で採番し直すので ID が変わる
+- `title`: 必須、1〜200 文字
+- `status`: `open` → `in_progress` → `completed` の一方向遷移（`Task.can_transition_to`）。`archived` へは `open` または `completed` からのみ遷移できる（`in_progress` → `archived` は不可）。`archived` からは遷移できない
+- `due_date` / `scheduled_date`: `YYYY-MM-DD` 形式。不正な日付は受け付けない（保存前に検証し、`InvalidTaskData` で断る）
 
-### エンティティ: GlobalConfig
+### エンティティ: GlobalConfig / ProjectEntry (`src/task_cli/models/task.py`)
 
-グローバル設定（`~/.task/config.json`）。ユーザー全体に共通する設定を管理する。
+グローバル設定（`~/.task-py/config.yaml`）。ユーザー全体に共通する設定を管理する。
 
-```typescript
-interface ProjectEntry {
-  name: string;  // プロジェクト名
-  id: number;    // 自動採番された数値 ID（Inbox は固定値 0）
-}
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `active_project` | `str \| None` | アクティブプロジェクト名（`None` = Inbox モード） |
+| `projects` | `list[ProjectEntry]` | プロジェクト一覧。`ProjectEntry` は `name: str` と `id: int`（自動採番。Inbox は表示上 0） |
+| `last_project_id` | `int` | 最後に採番したプロジェクト ID |
 
-interface GlobalConfig {
-  activeProject: string | null;  // アクティブプロジェクト名（null = Inbox モード）
-  projects: ProjectEntry[];      // プロジェクト一覧
-  lastProjectId: number;         // 最後に採番したプロジェクト ID
-}
-```
+TypeScript 版（`~/.task/`）のデータは `task-py migrate` が変換して取り込む。Python 版の `GlobalConfigStorage.load()` は旧形式を読み替えない。
 
-**旧フォーマットとの互換性**: `projects` が `string[]` 形式の場合、`GlobalConfigStorage.load()` 実行時に自動マイグレーションを行う（`{ name, id }` 形式に変換）。変換結果は次回の書き込みコマンド実行時に `config.json` へ永続化される（遅延書き込み）。
+### エンティティ: Routine / DailyLog (`src/task_cli/models/daily.py`)
 
-### エンティティ: Routine
+ルーティーン定義（`~/.task-py/daily/routines.yaml`）は、プロジェクトに依存しないグローバルな繰り返しタスク。
 
-ルーティーン定義（`~/.task/daily/routines.json`）。プロジェクトに依存しないグローバルな繰り返しタスク。
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `id` | `int` | 自動採番（`max(id) + 1`） |
+| `title` | `str` | タイトル |
+| `paused` | `bool` | 一時停止フラグ（`True` のとき `list` から非表示） |
+| `created_at` | `datetime` | 作成日時 |
 
-```typescript
-interface Routine {
-  id: number;        // 自動採番（1始まり、欠番再利用なし）
-  title: string;     // タイトル
-  paused: boolean;   // 一時停止フラグ（true のとき list から非表示）
-  createdAt: string; // ISO 8601（達成率計算の起算日として使用）
-}
-```
+日別の済/未済実績（`~/.task-py/daily/log.yaml`）。直近 30 日分を保持し、古いログは保存時に削除する。
 
-### エンティティ: DailyLog
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `date` | `str` | `YYYY-MM-DD`（ローカルタイムゾーン） |
+| `entries` | `list[DailyLogEntry]` | `routine_id: int` と `status: "pending" \| "done"` |
 
-日別の済/未済実績（`~/.task/daily/log.json`）。直近30日分を配列で保持し、古いログは自動削除。
+**自動作成**: ルーティーンの追加・一覧・完了などの実行時に今日のログを確かめ、無ければ（または新しいルーティーンが増えていれば）今日の分を `pending` で作る。昨日以前のログは保持する。読み取りだけの呼び出し（Web GUI）は書き足さない（`DailyService.list_today(ensure=False)`）。
 
-```typescript
-interface DailyLog {
-  date: string;                              // "YYYY-MM-DD"（ローカルタイムゾーン）
-  entries: Record<number, 'pending' | 'done'>; // routineId → 当日の状態
-}
-```
+### エンティティ: WorkSession / TimerState (`src/task_cli/models/time.py`)
 
-**自動リセット**: `task daily list` / `done` / `reset` 実行時に日付をチェックし、新しい日であれば今日の空ログを自動作成する（昨日以前のログは保持）。
+| モデル | フィールド | 説明 |
+|---|---|---|
+| `WorkSession` | `started_at` / `ended_at` / `seconds` / `source` | タスクに対して実際に作業した1区間。`source` は `timer` または `manual` |
+| `TimerState` | `kind` / `project` / `task_id` / `task_title` / `duration_seconds` / `started_at` / `pid` | 実行中タイマーの宣言的な記録。残り時間・経過時間は持たず、`started_at` と `duration_seconds` から都度計算する。`kind` は `countdown` または `stopwatch`（`duration_seconds` は `None`）。`task_title` は表示用のコピーで、正本はタスク側 |
 
-### エンティティ: ProjectConfig
-
-プロジェクト別設定（`~/.task/projects/<name>/config.json`）。※ P1 で利用する GitHub 連携設定。
-
-```typescript
-interface ProjectConfig {
-  githubToken: string | null;  // GitHub Personal Access Token（P1）
-  githubOwner: string | null;  // GitHubリポジトリのオーナー名（P1）
-  githubRepo: string | null;   // GitHubリポジトリ名（P1）
-  defaultBranch: string;       // デフォルトベースブランチ（P1、デフォルト: 'main'）
-}
-```
+`TimerFile`（`timer.yaml` のトップレベル）は `active: TimerState | None` を持つ。
 
 ### ファイル構造
 
 ```
-~/.task/
-├── config.json                    # グローバル設定（activeProject 等）
+~/.task-py/
+├── config.yaml                    # グローバル設定（active_project 等）
 ├── inbox/
-│   └── tasks.json                 # Inbox タスクデータ（配列）
-└── projects/
-    └── <name>/
-        ├── tasks.json             # タスクデータ（配列）
-        └── config.json            # プロジェクト別設定（GitHub Token 等、chmod 600、P1）
+│   └── tasks.yaml                 # Inbox タスクデータ（配列）
+├── projects/
+│   └── <name>/
+│       └── tasks.yaml             # プロジェクトのタスクデータ（配列）
+├── daily/
+│   ├── routines.yaml              # ルーティーン定義
+│   └── log.yaml                   # 日別ログ（直近30日）
+├── timer.yaml                     # 実行中タイマー（無いとき: 存在しない）
+├── mcp_calls.jsonl                # MCP ツールの呼び出し記録
+└── *.lock / *.bak                 # 排他用のロックファイルと、書き込み中のバックアップ
 ```
 
-**~/.task/config.json の例**:
-```json
-{
-  "activeProject": "my-app"
-}
+`project remove` は `config.yaml` の登録だけを消し、`projects/<name>/` のデータは残す。
+
+**~/.task-py/config.yaml の例**:
+```yaml
+active_project: my-app
+projects:
+- name: my-app
+  id: 1
+last_project_id: 1
 ```
 
-**~/.task/projects/my-app/tasks.json の例**:
-```json
-[
-  {
-    "id": 1,
-    "title": "ユーザー認証機能の実装",
-    "description": "JWT を使ったログイン・ログアウト機能",
-    "status": "in_progress",
-    "priority": "high",
-    "branch": "feature/task-1-user-authentication",
-    "dueDate": "2026-03-31",
-    "createdAt": "2026-02-26T10:00:00Z",
-    "updatedAt": "2026-02-26T11:30:00Z"
-  }
-]
+**~/.task-py/projects/my-app/tasks.yaml の例**:
+```yaml
+- id: 1
+  title: ユーザー認証機能の実装
+  description: JWT を使ったログイン・ログアウト機能
+  status: in_progress
+  priority: high
+  branch: null
+  due_date: '2026-03-31'
+  created_at: '2026-02-26T10:00:00Z'
+  updated_at: '2026-02-26T11:30:00Z'
+  completed_at: null
+  scheduled_date: '2026-03-01'
+  work_sessions:
+  - started_at: '2026-02-26T10:00:00Z'
+    ended_at: '2026-02-26T10:25:00Z'
+    seconds: 1500
+    source: timer
 ```
 
-**~/.task/projects/my-app/config.json の例（P1）**:
-```json
-{
-  "githubToken": null,
-  "githubOwner": null,
-  "githubRepo": null,
-  "defaultBranch": "main"
-}
+**~/.task-py/daily/routines.yaml / log.yaml の例**:
+```yaml
+# routines.yaml
+- id: 1
+  title: 朝の散歩
+  paused: false
+  created_at: '2026-02-01T00:00:00Z'
+```
+```yaml
+# log.yaml
+- date: '2026-02-26'
+  entries:
+  - routine_id: 1
+    status: done
 ```
 
 ---
 
 ## コンポーネント設計
 
-### CLIレイヤー (`src/cli/`)
+### CLIレイヤー (`src/task_cli/cli/`)
 
 **責務**: コマンド解析・入力バリデーション・結果の整形表示
 
-```typescript
-// src/cli/index.ts - エントリーポイント
-// Commander.js でサブコマンドを登録し、各サービスに委譲する
+`main.py` が typer の `app` を組み立て、コマンドは `commands/` に1コマンド1関数で置く（グループは `project.py` / `daily.py` / `time.py`）。`deps.py` が `TaskCrudUseCase` などを組み立てる。入口は `task-py`（`task_cli.cli.main:app`）、`task-mcp`、`task-web` の3つ。
 
-class CLI {
-  registerCommands(): void;   // 全サブコマンドを登録
-  run(argv: string[]): void;  // CLI起動
-}
-```
-
-**サブコマンド一覧（P0: v1.0 MVP）**:
+**サブコマンド一覧（タスク）**:
 
 | コマンド | 引数 / オプション | 処理概要 |
 |---------|----------------|---------|
-| `task add <title>` | `--description` | タスク作成 |
-| `task list` | `--status <status>`, `--all-status`, `--all`, `--inbox` | タスク一覧表示。デフォルトは `open` + `in_progress` のみ表示。`--all-status` で全ステータス表示。`--all` で全プロジェクト + Inbox を一覧表示 |
-| `task show <id>` | — | タスク詳細表示 |
-| `task start <id>` | — | ステータスを `in_progress` に変更 |
-| `task done <id>` | — | ステータスを `completed` に変更 |
-| `task delete <id>` | — | タスク削除（確認プロンプト付き） |
-| `task archive <id>` | — | ステータスを `archived` に変更 |
-| `task project create <name>` | — | プロジェクト作成 |
-| `task project list` | — | プロジェクト一覧表示（タスク数付き） |
-| `task project use <name>` | — | アクティブプロジェクトを切り替え |
-| `task project rename <old> <new>` | — | プロジェクト名を変更（ID は変わらない） |
-| `task project remove <name>` | — | プロジェクト削除（確認プロンプト付き） |
-| `task move <id> <project>` | — | タスクを別プロジェクト（または `inbox`）に移動 |
-| `task inbox` | — | アクティブプロジェクトを解除し Inbox モードに切り替え |
+| `task-py add <title>` | `--description` / `-d`, `--priority` / `-p`, `--due` | タスク作成。優先度の既定は `medium` |
+| `task-py list` | `--all-status`, `--all`, `--inbox` | タスク一覧表示。既定は `open` + `in_progress` のみ。`--all-status` で全ステータス。`--all` で全プロジェクト + Inbox。`--inbox` で Inbox のみ。優先度での絞り込みと並べ替えは CLI には無い（Web の一覧 API にはある） |
+| `task-py show <id>` | — | タスク詳細表示 |
+| `task-py start <id>` | — | ステータスを `in_progress` に変更。解禁日が未来のタスクは開始できない |
+| `task-py done <id>` | — | ステータスを `completed` に変更し、完了日時を記録。対象タスクのタイマーは記録して停止する |
+| `task-py delete <id>` | — | タスク削除（確認プロンプト付き） |
+| `task-py archive <id>` | — | ステータスを `archived` に変更 |
+| `task-py edit <id>` | `--title` / `-t`, `--description` / `-d`, `--priority` / `-p`, `--due`, `--due-clear`, `--scheduled`, `--scheduled-clear`, `--editor` / `-e` | タスク属性の編集（下記「`$EDITOR` 連携」を参照） |
+| `task-py schedule <id> [date]` | `--clear` | 解禁日を設定・削除する。解禁日以降に `start` できる |
+| `task-py search <keyword>` | — | アクティブプロジェクトまたは Inbox のタスクを、タイトル・説明の大文字小文字を区別しない部分一致で検索 |
+| `task-py move <id> <project>` | — | タスクを別プロジェクト（または `inbox`）に移動。移動先で採番し直されるので ID が変わる |
+| `task-py inbox` | — | アクティブプロジェクトを解除し Inbox モードに切り替え |
 
-**ルーティーン管理（P0: v1.0 追加実装）**:
+**プロジェクト管理**:
 
 | コマンド | 引数 / オプション | 処理概要 |
 |---------|----------------|---------|
-| `task daily add <title>` | — | ルーティーンを登録する |
-| `task daily list` | `--all`（一時停止中も表示） | 今日のルーティーン一覧を表示（達成率高い順、paused は末尾） |
-| `task daily done <id>` | — | ルーティーンを済にする |
-| `task daily pause <id>` | — | ルーティーンを一時停止する（`list` から非表示） |
-| `task daily resume <id>` | — | 一時停止を解除する |
-| `task daily resume --all` | — | 一時停止中の全ルーティーンを一括で再開する |
-| `task daily delete <id>` | — | ルーティーンを削除する（実績ログも削除） |
-| `task daily stats` | — | 直近7日の日別達成率テーブルを表示する |
-| `task daily reset` | — | 今日のチェック状態を手動リセットする（確認プロンプト付き） |
+| `task-py project create <name>` | — | プロジェクト作成（アクティブに設定される） |
+| `task-py project list` | — | プロジェクト一覧表示（タスク数付き） |
+| `task-py project use <name>` | — | アクティブプロジェクトを切り替え |
+| `task-py project rename <old> <new>` | — | プロジェクト名を変更（ID は変わらない。データのディレクトリも移す） |
+| `task-py project remove <name>` | — | プロジェクトの登録を削除（確認プロンプト付き。データのディレクトリは残る） |
 
-**オンボード機能（P0: v1.0 追加実装）**:
+**ルーティーン管理**:
 
 | コマンド | 引数 / オプション | 処理概要 |
 |---------|----------------|---------|
-| `task onboard` | — | アクティブプロジェクト・今日の毎日やること（pending）・今とりかかるべきタスク（最大3件）・全タスク一覧を一画面に表示する |
+| `task-py daily add <title>` | — | ルーティーンを登録する |
+| `task-py daily list` | `--all`（一時停止中も表示） | 今日のルーティーン一覧を表示（済は上、一時停止中は末尾） |
+| `task-py daily done <id>` | — | ルーティーンを済にする |
+| `task-py daily pause <id>` | — | ルーティーンを一時停止する（`list` から非表示） |
+| `task-py daily resume [id]` | `--all` | 一時停止を解除する。`id` を省略するか `--all` を付けると、一時停止中の全ルーティーンを一括で再開する |
+| `task-py daily delete <id>` | — | ルーティーンを削除する（実績ログも削除） |
+| `task-py daily stats` | — | 最新の日別ログ7日分（ログのある日）の達成率テーブルを表示する |
+| `task-py daily reset` | — | 今日のチェック状態をすべて `pending` に戻す |
 
-**タイマー・作業時間（P0: v1.0 でタイマー導入 / v1.2 で永続化とタスク連携）**:
+**概況表示**:
 
 | コマンド | 引数 / オプション | 処理概要 |
 |---------|----------------|---------|
-| `task time start [duration]` | `--task`, `--detach`, `--force` | タイマーを開始する。`duration` は `20min`/`20m`/`1h`/`30s`、または単位なし数値（分として解釈）。**省略するとストップウォッチ**。残り時間をリアルタイム表示し、終了時にターミナルベルで通知。Ctrl+C で中断した場合も経過分を記録する。`--task <id>` で作業時間の記録先を指定し、`--detach` で表示せず状態だけ記録する。実行中タイマーがあると失敗し、`--force` で置き換える（置き換えられる側は記録される） |
-| `task time status` | — | 実行中タイマーの残り時間（または経過時間）を表示する。時間切れの場合は超過を表示する |
-| `task time stop` | — | タイマーを終了し、経過分を対象タスクの作業時間として記録する |
-| `task time cancel` | — | タイマーを破棄する（作業時間は記録しない） |
-| `task time log <id> <duration>` | — | 作業時間を手動で記録する |
+| `task-py overview` | — | アクティブプロジェクト・今日の毎日やること（pending）・今とりかかるべきタスク（最大3件）・全プロジェクトの `open` + `in_progress` を一画面に表示する |
+
+**タイマー・作業時間（v1.0 でタイマー導入 / v1.2 で永続化とタスク連携）**:
+
+| コマンド | 引数 / オプション | 処理概要 |
+|---------|----------------|---------|
+| `task-py time start [duration]` | `--task` / `-t`, `--detach` / `-d`, `--force` | タイマーを開始する。`duration` は `20min`/`20m`/`1h`/`30s`、または単位なし数値（分として解釈）。**省略するとストップウォッチ**。残り時間をリアルタイム表示し、終了時にターミナルベルで通知。Ctrl+C で中断した場合も経過分を記録する。`--task <id>` で作業時間の記録先を指定し、`--detach` で表示せず状態だけ記録する。実行中タイマーがあると失敗し、`--force` で置き換える（置き換えられる側は記録される） |
+| `task-py time status` | — | 実行中タイマーの残り時間（または経過時間）を表示する。時間切れの場合は超過を表示する |
+| `task-py time stop` | — | タイマーを終了し、経過分を対象タスクの作業時間として記録する |
+| `task-py time cancel` | — | タイマーを破棄する（作業時間は記録しない） |
+| `task-py time log <id> <duration>` | — | 作業時間を手動で記録する |
 
 **タイマー状態の永続化**: 実行中タイマーは `~/.task-py/timer.yaml` に記録する。残り時間は保存された開始時刻から都度計算するため、**プロセスが落ちても・別プロセス（MCP や Web GUI）から読んでも・端末がスリープしても同じ値になる**。実行中タイマーは同時に1本のみ。
 
@@ -284,206 +305,161 @@ class CLI {
 
 | コマンド | 引数 / オプション | 処理概要 |
 |---------|----------------|---------|
-| `task edit <id>` | （オプションなし） | 対話端末では `$EDITOR` を開き、説明を編集する。非対話端末（CI・パイプ）では従来どおりエラー終了する |
-| `task edit <id> -e` | `--editor` | 他のオプションと併用してエディタを開く |
+| `task-py edit <id>` | （オプションなし） | 対話端末では `$EDITOR` を開き、説明を編集する。非対話端末（CI・パイプ）では従来どおりエラー終了する |
+| `task-py edit <id> -e` | `--editor` | 他のオプションと併用してエディタを開く |
 
 `VISUAL` → `EDITOR` の順に環境変数を見る。値は `shlex.split` されてから起動されるため、`EDITOR="code --wait"` のような引数付きの指定が使える。編集をキャンセルした場合・内容を元に戻した場合はどちらも「変更しない」として正常終了する。
 
-**サブコマンド一覧（P1: v1.1）**:
+**その他のコマンド**:
 
 | コマンド | 引数 / オプション | 処理概要 |
 |---------|----------------|---------|
-| `task add <title>` | `--priority`, `--due` | P0 に優先度・期限オプション追加 |
-| `task list` | `--priority`, `--sort` | P0 の `--status` / `--inbox` に加え、優先度絞り込み・ソートを追加 |
-| `task start <id>` | — | ステータス変更 + Git ブランチ作成 + コミットフックインストール |
-| `task done <id>` | `--pr` | ステータス変更（`--pr` で PR 作成） |
-| `task edit <id>` | — | タスク属性の編集（v1.2 でオプションなし実行時に `$EDITOR` を起動するよう拡張。上記「`$EDITOR` 連携」節を参照） |
-| `task search <keyword>` | — | タイトル・説明の全文検索 |
-| `task config setup` | — | 対話式ウィザードで GitHub Token・Owner・Repo を一括設定 |
-| `task config set <key> <value>` | — | プロジェクト別設定値を個別保存（GitHub Token 等） |
-| `task sync` | — | GitHub Issues と双方向同期 |
-| `task import --github` | — | GitHub Issues からインポート |
+| `task-py shell` | — | インタラクティブシェルを起動する（prompt-toolkit。コマンドの補完付き） |
+| `task-py web` | `--port` / `-p`, `--no-open` | ローカル Web GUI を起動する（下記「ローカル Web GUI」節） |
+| `task-py migrate` | `--dry-run`, `--force` | TypeScript 版（`~/.task/`）のデータを `~/.task-py/` に移行する。既存データがあれば退避してから上書きする |
+| `task-py reset` | — | `~/.task-py/` のすべてのデータを削除する（削除前に退避する） |
+
+`migrate` と `reset` の退避先は `~/.task-py.backup.<日時>`（直近 5 世代を保持）。
+
+**MCP サーバー** (`src/task_mcp/server.py`): `task-mcp`（stdio）が、タスク・プロジェクト・ルーティーン・タイマーの操作をツールとして公開する。CLI と同じユースケース・サービスを通るので、ステータス遷移・検証・排他は CLI と同じである。
 
 ---
 
-### TaskManager (`src/services/TaskManager.ts`)
+### TaskCrudUseCase (`src/task_cli/usecases/task_crud_usecase.py`)
 
-**責務**: タスクのCRUDおよびステータス管理
+**責務**: 対象プロジェクトの解決、タスク操作とタイマーの連動、複数ファイルに跨る操作の排他
 
-```typescript
-class TaskManager {
-  createTask(data: CreateTaskInput): Task;
-  listTasks(filter?: TaskFilter): Task[];
-  getTask(id: number): Task;
-  updateTask(id: number, data: Partial<Task>): Task;
-  deleteTask(id: number): void;
-  startTask(id: number): Task;      // open/in_progress → in_progress
-  completeTask(id: number): Task;   // in_progress → completed
-  archiveTask(id: number): Task;    // open/completed → archived
-  // title・description を対象に、大文字小文字を区別しない部分一致検索
-  // 例: searchTasks("auth") → "auth"/"Auth"/"AUTH" を含む Task[] を返す
-  searchTasks(keyword: string): Task[];
-  nextId(): number;                 // 現在の最大IDに+1した値を返す
-}
-
-interface CreateTaskInput {
-  title: string;
-  description?: string;
-  priority?: TaskPriority;
-  dueDate?: string;
-}
-
-interface TaskFilter {
-  status?: TaskStatus | TaskStatus[];  // 複数ステータス指定可（例: ['open', 'in_progress']）
-  priority?: TaskPriority;
-  sort?: 'id' | 'priority' | 'dueDate' | 'createdAt';
-  // デフォルトは 'id' の昇順。'priority' はhigh > medium > lowの順。
-  // 'dueDate' はnullを末尾に表示。
-}
+```python
+class TaskCrudUseCase:
+    def __init__(self, global_config_service, storage_factory=None, time_tracking=None) -> None: ...
+    def guarded(self, project, *also) -> Iterator[None]: ...   # 照合から書き込みまでを1つの排他区間にする
+    def add_task(self, title, description="", priority=Priority.MEDIUM, due_date=None, scheduled_date=None, project=ACTIVE_PROJECT) -> Task: ...
+    def list_tasks(self, filter=None, project=ACTIVE_PROJECT) -> list[Task]: ...
+    def list_all_projects(self, filter=None) -> dict[str | None, list[Task]]: ...   # None が Inbox
+    def list_inbox_tasks(self, filter=None) -> list[Task]: ...
+    def get_task(self, id, project=ACTIVE_PROJECT) -> Task: ...
+    def start_task(self, id, project=ACTIVE_PROJECT) -> Task: ...
+    def complete_task(self, id, project=ACTIVE_PROJECT) -> Task: ...
+    def archive_task(self, id, project=ACTIVE_PROJECT) -> Task: ...
+    def delete_task(self, id, project=ACTIVE_PROJECT) -> None: ...
+    def edit_task(self, id, title=None, description=None, priority=None, due_date=None, clear_due_date=False, scheduled_date=None, clear_scheduled_date=False, project=ACTIVE_PROJECT) -> Task: ...
+    def set_scheduled_date(self, id, date, project=ACTIVE_PROJECT) -> Task: ...
+    def search_tasks(self, keyword, project=ACTIVE_PROJECT) -> list[Task]: ...
+    def search_all_projects(self, keyword) -> dict[str | None, list[Task]]: ...
+    def move_task(self, id, target_project, project=ACTIVE_PROJECT) -> Task: ...
 ```
+
+- 操作の対象は `project` 引数で受ける。`ACTIVE_PROJECT`（グローバルのアクティブプロジェクトに従う。CLI と MCP の既定）/ プロジェクト名 / `None`（Inbox）を型で区別する（`usecases/project_target.py`）。Web は常に明示する
+- `complete_task` / `archive_task` は、遷移できる場合だけ先に実行中タイマーを記録して畳む。`delete_task` は記録せずに解除する。`move_task` は移動先で採番し直し、タイマーの向き先を付け替える
+- `move_task` は移動元と移動先の両方のロックを1つの排他区間で握る（`locked` がパスをソートして取得するのでデッドロックしない）
+- **ロックの取得順は `timer.yaml` → `tasks.yaml`**。逆にすると `time stop` とデッドロックする
+
+**依存関係**: `GlobalConfigService`, `TaskManager`, `FileStorage`, `TimeTrackingUseCase`
+
+### TimeTrackingUseCase (`src/task_cli/usecases/time_tracking_usecase.py`)
+
+**責務**: タイマーの開始・停止・取り消しと、作業時間の手動記録。タイマーの状態（`TimerService`）と、記録先のタスク（`TaskManager`）を結ぶ
+
+**依存関係**: `GlobalConfigService`, `TimerService`, `TaskManager`
+
+---
+
+### TaskManager (`src/task_cli/services/task_manager.py`)
+
+**責務**: 1つの保存先に対するタスクの CRUD およびステータス管理。保存の前に `Task` として検証する
+
+```python
+class TaskManager:
+    def __init__(self, storage: FileStorage) -> None: ...
+    def create_task(self, title, description="", priority=Priority.MEDIUM, due_date=None, scheduled_date=None) -> Task: ...
+    def list_tasks(self, filter: TaskFilter | None = None) -> list[Task]: ...
+    def get_task(self, id: int) -> Task: ...
+    def update_task(self, id: int, **kwargs) -> Task: ...
+    def edit_fields(self, id, title=None, description=None, priority=None, due_date=None, ...) -> Task: ...
+    def set_scheduled_date(self, id: int, date: str | None) -> Task: ...
+    def append_work_session(self, id: int, session: WorkSession) -> Task: ...
+    def delete_task(self, id: int) -> None: ...
+    def start_task(self, id: int) -> Task: ...      # open → in_progress（解禁日が未来なら不可）
+    def complete_task(self, id: int) -> Task: ...   # in_progress → completed
+    def archive_task(self, id: int) -> Task: ...    # open/completed → archived
+    # title・description を対象に、大文字小文字を区別しない部分一致検索
+    def search_tasks(self, keyword: str) -> list[Task]: ...
+    def next_id(self) -> int: ...                   # 現在の最大IDに+1した値を返す
+
+@dataclass
+class TaskFilter:
+    status: TaskStatus | list[TaskStatus] | None = None  # 複数ステータス指定可
+    priority: Priority | None = None
+    sort: Literal["id", "priority", "due_date", "created_at"] = "id"
+    # 既定は 'id' の昇順。'priority' は high > medium > low の順。
+    # 'due_date' は None を末尾に置く。
+```
+
+- ステータス変更は `_apply_status_change` が唯一の絞り口で、`completed_at` の出入りをここだけで決める
+- 不正な値は保存の**前**に `InvalidTaskData`（`AppError` の派生）で断る
+- `TaskFilter` の `priority` / `sort` は、Web の一覧 API のクエリ（`?status=&priority=&sort=`）から使える。CLI と MCP の一覧は `status` だけを公開している
 
 **依存関係**: `FileStorage`
 
 ---
 
-### GitService (`src/services/GitService.ts`)
+### GlobalConfigService (`src/task_cli/services/global_config_service.py`)
 
-**責務**: Gitブランチ操作・コミットフック管理
+**責務**: グローバル設定（`~/.task-py/config.yaml`）の読み書き・アクティブプロジェクト管理
 
-```typescript
-class GitService {
-  isGitRepository(): Promise<boolean>;
-  getCurrentBranch(): Promise<string>;
-  createAndCheckoutBranch(branchName: string): Promise<void>;
-  checkoutBranch(branchName: string): Promise<void>;
-  branchExists(branchName: string): Promise<boolean>;
-  installCommitMsgHook(taskId: number): Promise<void>;  // prepare-commit-msg フックをインストール
-  push(branch: string): Promise<void>;
-  formatBranchName(taskId: number, title: string): string;
-  // 例: formatBranchName(1, "ユーザー認証機能の実装") → "feature/task-1-user-authentication"
-  // 内部実装: src/utils/slug.ts の slugify() を使用
-}
-```
-
-**依存関係**: `simple-git`
-
-**ブランチ命名規則**:
-- フォーマット: `feature/task-<id>-<slug>`
-- スラッグ変換: タイトルを小文字英数字+ハイフンに変換。非 ASCII 文字（日本語等）は除去。連続するハイフンは 1 つに圧縮。先頭・末尾のハイフンも除去。
-- 最大長: 63文字（超過時は切り詰め）
-- スラッグが空になる場合（タイトルが全角文字のみ等）は `task-<id>` のみとする
-
-**スラッグ変換例**:
-
-| 入力タイトル | 変換後スラッグ |
-|-----------|-------------|
-| `"ユーザー認証機能の実装"` | `""` → ブランチ名: `feature/task-1` |
-| `"Fix: Login Bug #123"` | `"fix-login-bug-123"` |
-| `"Add OAuth 2.0 Support"` | `"add-oauth-2-0-support"` |
-| `"user authentication"` | `"user-authentication"` |
-
-**コミットフック仕様** (`.git/hooks/prepare-commit-msg`)（P1）:
-```bash
-#!/bin/sh
-# TaskCLI: auto-append task number
-TASK_ID=$(cat "$(git rev-parse --show-toplevel)/.taskcli-current" 2>/dev/null)
-if [ -n "$TASK_ID" ]; then
-  echo "" >> "$1"
-  echo "[Task #$TASK_ID]" >> "$1"
-fi
-```
-- `task start <id>` 実行時に Git リポジトリルートの `.taskcli-current` にタスクIDを保存（P1）
-- `task done <id>` 実行時に `.taskcli-current` を削除（P1）
-- `.taskcli-current` は `.gitignore` に追加する（P1）
-
----
-
-### GitHubService (`src/services/GitHubService.ts`)
-
-**責務**: GitHub Issues の同期・PR作成
-
-```typescript
-class GitHubService {
-  createPR(task: Task, baseBranch: string): Promise<string>;  // PR URL を返す
-  syncIssues(): Promise<SyncResult>;
-  importIssues(): Promise<Task[]>;
-  isConfigured(): boolean;
-}
-
-interface SyncResult {
-  created: number;   // ローカルに新規作成したタスク数
-  updated: number;   // 更新したタスク数
-  pushed: number;    // GitHub Issues に反映したタスク数
-}
-```
-
-**PR 本文テンプレート**:
-```markdown
-## 概要
-{task.description が空でなければ記載。空の場合は「{task.title} の実装」}
-
-## 関連タスク
-Task #{task.id}
-```
-
-**依存関係**: `ConfigService`, `node-fetch` または Node.js 標準 `fetch`
-
----
-
-### GlobalConfigService (`src/services/GlobalConfigService.ts`)
-
-**責務**: グローバル設定（`~/.task/config.json`）の読み書き・アクティブプロジェクト管理
-
-```typescript
-class GlobalConfigService {
-  getActiveProject(): string | null;         // アクティブプロジェクト名。null = Inbox モード
-  setActiveProject(name: string | null): void;  // null を渡すと Inbox モードに切り替え
-  getAll(): GlobalConfig;
-}
+```python
+class GlobalConfigService:
+    def get_active_project(self) -> str | None: ...        # None = Inbox モード
+    def set_active_project(self, name: str | None) -> None: ...  # None を渡すと Inbox モード
+    def get_all(self) -> GlobalConfig: ...
 ```
 
 **依存関係**: `GlobalConfigStorage`
 
----
+### ProjectService (`src/task_cli/services/project_service.py`)
 
-### ConfigService (`src/services/ConfigService.ts`)
+**責務**: プロジェクトの作成・一覧・切り替え・改名・登録削除。採番とディレクトリ移動を排他区間の中で行う
 
-**責務**: プロジェクト別設定（`~/.task/projects/<name>/config.json`）の読み書き・バリデーション（P1）
-
-```typescript
-class ConfigService {
-  get<K extends keyof ProjectConfig>(key: K): ProjectConfig[K];
-  set<K extends keyof ProjectConfig>(key: K, value: ProjectConfig[K]): void;  // バリデーション後に保存
-  getAll(): ProjectConfig;
-}
+```python
+class ProjectService:
+    def create_project(self, name: str) -> ProjectEntry: ...
+    def list_projects(self) -> list[ProjectEntry]: ...
+    def get_project(self, name: str) -> ProjectEntry: ...
+    def use_project(self, name: str) -> None: ...
+    def rename_project(self, old: str, new: str) -> None: ...  # ディレクトリを先に移し、設定を後で更新する
+    def remove_project(self, name: str) -> None: ...           # 登録だけを消す。データは残る
 ```
 
-**バリデーション仕様**（P1）:
+**依存関係**: `GlobalConfigStorage`
 
-| キー | バリデーション |
-|-----|-------------|
-| `githubToken` | `ghp_` または `github_pat_` で始まる文字列。形式が不正な場合は警告を表示して保存（APIエラーはsync/PR作成時に検出） |
-| `githubOwner` | 英数字・ハイフンのみ（GitHub ユーザー名規則）。空文字は不可 |
-| `githubRepo` | 英数字・ハイフン・アンダースコア・ドットのみ。空文字は不可 |
-| `defaultBranch` | 空文字は不可。デフォルト値: `'main'` |
+### DailyService (`src/task_cli/services/daily_service.py`)
 
-**依存関係**: `ConfigStorage`
+**責務**: ルーティーンの登録・今日の状態・一時停止・達成率
+
+**依存関係**: `RoutineStorage`, `DailyLogStorage`
+
+### TimerService (`src/task_cli/services/timer_service.py`)
+
+**責務**: 実行中タイマーの状態の記録と、残り時間・経過時間・時間切れの計算（`started_at` から都度計算する）
+
+**依存関係**: `TimerStorage`
 
 ---
 
-### GlobalConfigStorage (`src/storage/GlobalConfigStorage.ts`)
+### GlobalConfigStorage (`src/task_cli/storage/global_config_storage.py`)
 
-**責務**: `~/.task/config.json` の読み書き
+**責務**: `~/.task-py/config.yaml` の読み書き
 
-```typescript
-class GlobalConfigStorage {
-  load(): GlobalConfig;
-  save(config: GlobalConfig): void;
-  ensureDirectory(): void;  // ~/.task/ ディレクトリを作成
-}
+```python
+class GlobalConfigStorage:
+    def __init__(self, config_path: str | Path | None = None) -> None: ...
+    def transaction(self) -> Iterator[None]: ...  # load→変更→save を覆う排他区間
+    def load(self) -> GlobalConfig: ...
+    def save(self, config: GlobalConfig) -> None: ...
+    def ensure_directory(self) -> None: ...       # ~/.task-py/ を作成し 0o700 にする
 ```
 
-**デフォルト値**: `activeProject: null`（初回起動時は Inbox モード）
+**デフォルト値**: `active_project: None`（初回起動時は Inbox モード）
 
 ---
 
@@ -513,33 +489,22 @@ class FileStorage:
 
 読み手が観測するのは常に完全なファイルであり、書き込みが途中で失敗しても本体は変更されない。詳細は `docs/architecture.md` の「書き込み戦略」「排他制御」を参照。
 
----
+### RoutineStorage / DailyLogStorage / TimerStorage (`src/task_cli/storage/`)
 
-### ConfigStorage (`src/storage/ConfigStorage.ts`)
-
-**責務**: `~/.task/projects/<name>/config.json` の読み書き（P1）
-
-```typescript
-class ConfigStorage {
-  constructor(filePath: string) {}  // 例: "~/.task/projects/my-app/config.json"
-  load(): ProjectConfig;
-  save(config: ProjectConfig): void;  // ファイルパーミッションを 600 に設定
-}
-```
+**責務**: `~/.task-py/daily/routines.yaml` / `~/.task-py/daily/log.yaml` / `~/.task-py/timer.yaml` の読み書き。いずれも `FileStorage` と同じく `transaction()` で排他し、書き込みは `storage/atomic.py` の `write_atomic`（一時ファイル → `fsync` → `os.replace`）を通る。`DailyLogStorage` は保存時に直近 30 日より古いログを捨てる
 
 ---
 
-### Renderer (`src/cli/Renderer.ts`)
+### Renderer (`src/task_cli/cli/renderer.py`)
 
 **責務**: タスク一覧・詳細のターミナル表示
 
-```typescript
-class Renderer {
-  renderTable(tasks: Task[]): void;
-  renderDetail(task: Task): void;
-  renderSuccess(message: string): void;
-  renderError(error: AppError): void;
-}
+```python
+def render_task_table(tasks, active_project, config, is_active=False) -> None: ...
+def render_task_detail(task, active_project, config) -> None: ...
+def render_success(message: str) -> None: ...
+def render_info(message: str) -> None: ...     # エラーでも成功でもない通知
+def render_error(error: AppError) -> None: ...
 ```
 
 ---
@@ -553,218 +518,115 @@ class Renderer {
 ```mermaid
 sequenceDiagram
     participant CLI
+    participant UseCase as TaskCrudUseCase
     participant GlobalConfigService
     participant GlobalConfigStorage
     participant FileStorage
 
-    CLI->>GlobalConfigService: getActiveProject()
+    CLI->>UseCase: 操作（project 省略 = ACTIVE_PROJECT）
+    UseCase->>GlobalConfigService: get_active_project()
     GlobalConfigService->>GlobalConfigStorage: load()
     GlobalConfigStorage-->>GlobalConfigService: GlobalConfig
-    alt activeProject が設定されている
-        GlobalConfigService-->>CLI: projectName
-        CLI->>FileStorage: new FileStorage("~/.task/projects/<name>/tasks.json")
-        Note over CLI,FileStorage: 以降のタスク操作はプロジェクトのストレージを使用
-    else activeProject が null（Inbox モード）
-        GlobalConfigService-->>CLI: null
-        CLI->>FileStorage: new FileStorage("~/.task/inbox/tasks.json")
-        Note over CLI,FileStorage: 以降のタスク操作は Inbox のストレージを使用
+    alt active_project が設定されている
+        GlobalConfigService-->>UseCase: project_name
+        UseCase->>FileStorage: FileStorage("~/.task-py/projects/<name>/tasks.yaml")
+        Note over UseCase,FileStorage: 以降のタスク操作はプロジェクトのストレージを使用
+    else active_project が None（Inbox モード）
+        GlobalConfigService-->>UseCase: None
+        UseCase->>FileStorage: FileStorage("~/.task-py/inbox/tasks.yaml")
+        Note over UseCase,FileStorage: 以降のタスク操作は Inbox のストレージを使用
     end
 ```
 
-**ヘッダー表示ルール**（`task list` 実行時）:
+MCP と Web は、`project` 引数で対象を明示できる（Web は常に明示し、グローバルのアクティブプロジェクトに依存しない）。
+
+**ヘッダー表示ルール**（`task-py list` 実行時）:
 - アクティブプロジェクトあり → `[Project: <name>]`
 - Inbox モード → `[Inbox]`
 
 ---
 
-### UC-1: task add（タスク作成）
+### UC-1: task-py add（タスク作成）
 
 ```mermaid
 sequenceDiagram
     participant User
     participant CLI
+    participant UseCase as TaskCrudUseCase
     participant TaskManager
     participant FileStorage
 
-    User->>CLI: task add "タスク名" --description "説明文"
-    CLI->>CLI: 入力バリデーション（title長）
-    CLI->>TaskManager: createTask({ title, description })
+    User->>CLI: task-py add "タスク名" --description "説明文"
+    CLI->>UseCase: add_task(title, description, ...)
+    UseCase->>TaskManager: create_task(...)
+    TaskManager->>FileStorage: transaction() で排他区間に入る
     TaskManager->>FileStorage: load()
-    FileStorage-->>TaskManager: Task[]
-    TaskManager->>TaskManager: nextId() で ID を採番
-    TaskManager->>TaskManager: Task オブジェクト生成
+    FileStorage-->>TaskManager: list[Task]
+    TaskManager->>TaskManager: next_id() で ID を採番
+    TaskManager->>TaskManager: Task を生成して保存前に検証（不正なら InvalidTaskData）
     TaskManager->>FileStorage: save(tasks)
     FileStorage-->>TaskManager: 成功
-    TaskManager-->>CLI: 作成した Task
+    TaskManager-->>UseCase: 作成した Task
+    UseCase-->>CLI: Task
     CLI-->>User: "タスクを作成しました (ID: 1)"
 ```
 
 ---
 
-### UC-2: task start（タスク開始）
-
-#### P0: ステータス変更のみ（v1.0 MVP）
+### UC-2: task-py start（タスク開始）
 
 ```mermaid
 sequenceDiagram
     participant User
     participant CLI
+    participant UseCase as TaskCrudUseCase
     participant TaskManager
     participant FileStorage
 
-    User->>CLI: task start 1
-    CLI->>TaskManager: getTask(1)
+    User->>CLI: task-py start 1
+    CLI->>UseCase: start_task(1)
+    UseCase->>TaskManager: start_task(1)
     TaskManager->>FileStorage: load()
-    FileStorage-->>TaskManager: Task[]
-    TaskManager-->>CLI: Task (status: open)
-    CLI->>TaskManager: startTask(1)
-    TaskManager->>FileStorage: save(tasks)
-    FileStorage-->>TaskManager: 成功
-    TaskManager-->>CLI: 更新した Task (status: in_progress)
-    CLI-->>User: "タスク #1 を開始しました"
-```
-
-**Inbox モードでの動作**: Inbox のタスクに `task start` を実行した場合、ステータスは `in_progress` に更新するが、「プロジェクトに移動してから Git 連携を使用してください（P1）」という情報メッセージを合わせて表示する。
-
-#### P1: Git ブランチ作成 + コミットフックインストール（v1.1）
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant CLI
-    participant TaskManager
-    participant GitService
-    participant FileStorage
-
-    User->>CLI: task start 1
-    CLI->>TaskManager: getTask(1)
-    TaskManager->>FileStorage: load()
-    FileStorage-->>TaskManager: Task[]
-    TaskManager-->>CLI: Task
-    CLI->>GitService: isGitRepository()
-    alt Gitリポジトリあり
-        GitService-->>CLI: true
-        CLI->>GitService: branchExists("feature/task-1-...")
-        alt ブランチなし
-            GitService-->>CLI: false
-            CLI->>User: "フック自動インストールの確認プロンプト"
-            User-->>CLI: OK
-            CLI->>GitService: createAndCheckoutBranch("feature/task-1-...")
-            GitService-->>CLI: 成功
-            CLI->>GitService: installCommitMsgHook(1)
-            GitService-->>CLI: 成功
-        else ブランチあり
-            GitService-->>CLI: true
-            CLI->>GitService: checkoutBranch("feature/task-1-...")
-            GitService-->>CLI: 成功
-            CLI->>GitService: isHookInstalled()
-            alt フック未インストール
-                GitService-->>CLI: false
-                CLI->>User: "フック自動インストールの確認プロンプト"
-                User-->>CLI: OK
-                CLI->>GitService: installCommitMsgHook(1)
-                GitService-->>CLI: 成功
-            else フック導入済み
-                GitService-->>CLI: true
-                Note over CLI,GitService: .taskcli-current を taskId で上書き
-            end
-        end
-    else Gitリポジトリなし
-        GitService-->>CLI: false
-        CLI-->>User: "[Warning] Gitリポジトリが見つかりません。ステータスのみ更新します。"
-    end
-    CLI->>TaskManager: startTask(1)
-    TaskManager->>FileStorage: save(tasks)
-    FileStorage-->>TaskManager: 成功
-    TaskManager-->>CLI: 更新した Task
-    CLI-->>User: "タスク #1 を開始しました\nブランチ: feature/task-1-user-authentication"
-```
-
----
-
-### UC-3: task done --pr（タスク完了 + PR作成）
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant CLI
-    participant TaskManager
-    participant GitService
-    participant GitHubService
-    participant FileStorage
-
-    User->>CLI: task done 1 --pr
-    CLI->>TaskManager: getTask(1)
-    TaskManager-->>CLI: Task (status: in_progress)
-    CLI->>User: "PR作成の確認プロンプト\nベースブランチ: main"
-    User-->>CLI: OK
-    CLI->>GitService: push("feature/task-1-...")
-    GitService-->>CLI: 成功
-    CLI->>GitHubService: createPR(task, "main")
-    GitHubService-->>CLI: PR URL
-    CLI->>TaskManager: completeTask(1)
-    TaskManager->>FileStorage: save(tasks)
-    FileStorage-->>TaskManager: 成功
-    TaskManager-->>CLI: 更新した Task
-    CLI-->>User: "タスク #1 を完了しました\nPR: https://github.com/.../pull/42"
-```
-
----
-
-### UC-4: task sync（GitHub Issues 同期）
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant CLI
-    participant GitHubService
-    participant TaskManager
-    participant FileStorage
-
-    User->>CLI: task sync
-    CLI->>GitHubService: isConfigured()
-    alt 未設定
-        GitHubService-->>CLI: false
-        CLI-->>User: "[Error] GitHub Token が未設定です。\n対処: task config set github-token <token>"
-    else 設定済み
-        GitHubService-->>CLI: true
-        CLI->>GitHubService: syncIssues()
-        GitHubService->>GitHubService: GitHub Issues を取得
-        GitHubService->>TaskManager: ローカルタスクと差分比較
-        TaskManager->>FileStorage: load()
-        FileStorage-->>TaskManager: Task[]
-        TaskManager-->>GitHubService: Task[]
-        GitHubService->>TaskManager: 差分を更新（createTask / updateTask）
+    FileStorage-->>TaskManager: list[Task]
+    alt 開始できない（open 以外、または解禁日が未来）
+        TaskManager-->>UseCase: StateConflictError
+        UseCase-->>CLI: StateConflictError
+        CLI-->>User: "[Error] このタスクは開始できません。/ まだ解禁されていません。"
+    else 開始できる
         TaskManager->>FileStorage: save(tasks)
-        GitHubService-->>CLI: SyncResult
-        CLI-->>User: "同期完了: 新規3件、更新2件、GitHub反映1件"
+        FileStorage-->>TaskManager: 成功
+        TaskManager-->>UseCase: 更新した Task (status: in_progress)
+        UseCase-->>CLI: 更新した Task
+        CLI-->>User: "タスク #1 を開始しました"
     end
 ```
 
+`start` はタイマーを開始しない。作業時間の計測は `task-py time start --task <id>` で別に行う。
+
 ---
 
-### UC-5: task delete（タスク削除）
+### UC-3: task-py delete（タスク削除）
 
 ```mermaid
 sequenceDiagram
     participant User
     participant CLI
+    participant UseCase as TaskCrudUseCase
     participant TaskManager
     participant FileStorage
 
-    User->>CLI: task delete 1
-    CLI->>TaskManager: getTask(1)
-    TaskManager->>FileStorage: load()
-    FileStorage-->>TaskManager: Task[]
-    TaskManager-->>CLI: Task (title: "ユーザー認証機能の実装")
+    User->>CLI: task-py delete 1
+    CLI->>UseCase: get_task(1)
+    UseCase-->>CLI: Task (title: "ユーザー認証機能の実装")
     CLI->>User: "タスク #1「ユーザー認証機能の実装」を削除しますか？ [y/N]"
     alt ユーザーが y を入力
         User-->>CLI: y
-        CLI->>TaskManager: deleteTask(1)
+        CLI->>UseCase: delete_task(1)
+        UseCase->>UseCase: 実行中タイマーがあれば記録せずに解除
+        UseCase->>TaskManager: delete_task(1)
         TaskManager->>FileStorage: save(tasks)
-        Note over TaskManager,FileStorage: ID=1 は欠番のまま再利用しない
+        Note over TaskManager,FileStorage: 採番は最大 ID + 1。最大 ID のタスクを消すとその番号は再び使われる
         FileStorage-->>TaskManager: 成功
-        TaskManager-->>CLI: 完了
         CLI-->>User: "タスク #1 を削除しました"
     else ユーザーが N または Enter を入力
         User-->>CLI: N
@@ -776,94 +638,73 @@ sequenceDiagram
 
 ## UI設計（ターミナル表示）
 
-### task list のテーブル表示
+### task-py list のテーブル表示
 
-**P0（v1.0 MVP）表示**（`task list`、デフォルトは `open` + `in_progress` のみ）:
+`task-py list`（既定は `open` + `in_progress` のみ）は **ID / Status / Title** の3列。
 ```
 [Project: my-app]
  ID   Status       Title
- ──── ──────────── ────────────────────────────────────────
  1-1  in_progress  ユーザー認証機能の実装
  1-2  open         データエクスポート機能
 
 [Inbox]  ← アクティブプロジェクト未設定時
  ID   Status       Title
- ──── ──────────── ────────────────────────────────────────
  0-1  open         買い物リスト作成
 ```
 
-**`task list --all`（全プロジェクト表示）**:
+**`task-py list --all`（全プロジェクト表示）**:
 ```
 [Project: my-app]    ← アクティブプロジェクトは緑色強調
  ID   Status       Title
- ──── ──────────── ────────────────────────────────────────
  1-1  in_progress  ユーザー認証機能の実装
  1-2  open         データエクスポート機能
 
 [Project: personal]
  ID   Status       Title
- ──── ──────────── ────────────────────────────────────────
  2-1  open         読書リスト
 
 [Inbox]
  ID   Status       Title
- ──── ──────────── ────────────────────────────────────────
  0-1  open         買い物リスト作成
 ```
 
-**P1（v1.1）追加列**:
-```
-[Project: my-app]
- ID  Status       Priority  Title                            Branch                              Due
- ─── ──────────── ──────── ──────────────────────────────── ─────────────────────────────────── ──────────
-  1  in_progress  high      ユーザー認証機能の実装            feature/task-1-user-authentication  2026-03-31
-  2  open         medium    データエクスポート機能             -                                   -
-  3  completed    low       初期セットアップ                   feature/task-3-initial-setup        -
-```
-
 **表示項目**:
-| 列 | バージョン | 説明 | フォーマット |
-|---|---|---|---|
-| ヘッダー行 | P0 | `[Project: <name>]` または `[Inbox]` | テーブル上部に常時表示 |
-| ID | P0 | タスクID | 右寄せ数値 |
-| Status | P0 | ステータス | カラーコード付き文字列 |
-| Title | P0 | タスク名 | 最大40文字（超過は`…`で省略） |
-| Priority | P1 | 優先度 | カラーコード付き文字列 |
-| Branch | P1 | ブランチ名 | 最大35文字（超過は`…`で省略）、なければ `-` |
-| Due | P1 | 期限 | `YYYY-MM-DD`、なければ `-`、期限切れは赤 |
+| 列 | 説明 | フォーマット |
+|---|---|---|
+| ヘッダー行 | `[Project: <name>]` または `[Inbox]` | テーブル上部に常時表示 |
+| ID | 複合 ID（`<projectId>-<localId>`、Inbox は `0-<localId>`） | 右寄せ |
+| Status | ステータス | カラーコード付き文字列 |
+| Title | タスク名 | 最大40文字（超過は`…`で省略） |
 
-### task project list の表示
+優先度・期限・完了日時・作業時間は、`task-py show <id>` の詳細パネルに出る（ブランチは値がある場合のみ）。解禁日は CLI の詳細パネルには出ない（Web GUI の詳細画面には出る）。
+
+### task-py project list の表示
 
 ```
-* my-app     5 tasks (2 in_progress)    ← * はアクティブプロジェクト
-  personal   3 tasks (0 in_progress)
-─────────────────────────────────────
-  [Inbox]    1 task
+ *  my-app     5 tasks (2 in_progress)    ← * はアクティブプロジェクト
+    personal   3 tasks (0 in_progress)
+    [Inbox]    1 task
 ```
 
-- アクティブプロジェクトは `*` で強調表示
+- アクティブプロジェクトは `*` と緑色で強調表示
 - 各プロジェクトのタスク総数と `in_progress` 件数を表示
-- Inbox のタスク数をフッターに表示
+- Inbox のタスク数を最終行に表示
+- 名前の列幅は最長のプロジェクト名に合わせて決まる（固定幅にしない）。端末が狭いときは名前を折り返す
 
 ---
 
 ### カラーコーディング
 
-**ステータスの色分け**:
+**ステータスの色分け**（`renderer.py` の `_STATUS_STYLES`）:
 - `open`: 白
 - `in_progress`: 黄
 - `completed`: 緑
 - `archived`: グレー
 
-**優先度の色分け（task show での表示）**:
+**優先度の色分け（`task-py show` での表示）**:
 - `high`: 赤
 - `medium`: 黄
 - `low`: 青
-
-**期限の色分け**:
-- 期限切れ（今日以前）: 赤
-- 残り 3 日以内: 黄
-- それ以外: デフォルト色
 
 ---
 
@@ -1006,19 +847,21 @@ Web では 400。
 
 ### エラークラス設計
 
-```typescript
-class AppError extends Error {
-  constructor(
-    message: string,
-    public readonly cause: string,
-    public readonly remedy: string
-  ) {
-    super(message);
-  }
-}
+`src/task_cli/exceptions.py` の `AppError` を基底とし、message・cause・remedy の3要素を持つ。
+
+```python
+class AppError(Exception):
+    def __init__(self, message: str, cause: str, remedy: str) -> None: ...
+
+class NotFoundError(AppError): ...       # 対象（タスク・プロジェクト）が存在しない。Web では 404
+class StateConflictError(AppError): ...  # いまの状態ではその操作ができない。Web では 409
 ```
 
+`InvalidTaskData`（`src/task_cli/services/task_manager.py`）は保存前の検証で値が不正なときの `AppError` の派生で、Web では 400。どれにも当たらない素の `AppError` は Web で 500 になる。CLI と MCP は従来どおり `except AppError` で扱う。
+
 ### エラー表示フォーマット
+
+`render_error`（`src/task_cli/cli/renderer.py`）が次の形で出し、終了コード 1 で終わる。
 
 ```
 [Error] <エラーの概要>
@@ -1030,25 +873,21 @@ class AppError extends Error {
 
 | エラー種別 | 処理 | 表示例 |
 |-----------|------|-------|
-| 入力バリデーション | 処理を中断 | `[Error] タイトルが長すぎます。\n  原因: 201文字以上の入力は受け付けません。\n  対処: 200文字以内で入力してください。` |
-| タスクが見つからない | 処理を中断 | `[Error] タスクが見つかりません。\n  原因: ID=99 のタスクは存在しません。\n  対処: task list で有効なIDを確認してください。` |
-| 不正なステータス遷移 | 処理を中断 | `[Error] このタスクは開始できません。\n  原因: archived のタスクは変更できません。\n  対処: 新しいタスクを作成してください。` |
-| Gitリポジトリなし | ブランチ操作をスキップ、警告表示 | `[Warning] Gitリポジトリが見つかりません。ステータスのみ更新します。` |
-| Gitブランチ操作失敗 | 元のブランチに戻す、処理を中断 | `[Error] ブランチの作成に失敗しました。\n  原因: <git エラーメッセージ>\n  対処: git status を確認し、未コミットの変更を解消してください。` |
-| GitHub Token 未設定 | 処理を中断 | `[Error] GitHub Token が未設定です。\n  原因: GitHub 連携機能には設定が必要です。\n  対処: task config set github-token <token> で設定してください。` |
-| GitHub API エラー | 処理を中断 | `[Error] GitHub API リクエストが失敗しました。\n  原因: <HTTPステータスコード> <メッセージ>\n  対処: Token の権限と有効期限を確認してください。` |
-| ネットワークタイムアウト | 処理を中断 | `[Error] ネットワークタイムアウト（5秒）が発生しました。\n  原因: GitHub API に接続できません。\n  対処: インターネット接続を確認してください。` |
-| Inbox タスクへの `task start`（P1 機能の案内） | ステータスのみ更新、情報メッセージ表示 | `[Info] タスク #1 を開始しました。Git 連携（P1）を使用する場合は task move 1 <project> でプロジェクトに移動してください。` |
-| ファイル読み込み失敗 | 空データで初期化し継続 | `[Warning] タスクデータが見つかりません。新規作成します。` |
-| ファイル書き込み失敗 | 一時ファイルを破棄し本体は無変更のまま処理中断（`.bak` からの復元経路も残す） | `[Error] タスクデータの保存に失敗しました。\n  原因: ディスクの空き容量が不足している可能性があります。\n  対処: ディスク容量を確認してください。` |
+| 入力バリデーション（`InvalidTaskData`） | 保存せずに処理を中断 | `[Error] 期限の値が正しくありません。\n  原因: 期限に 'bogus' が指定されました。\n  対処: YYYY-MM-DD の形式で指定してください（例: 2026-12-31）。` |
+| タスクが見つからない（`NotFoundError`） | 処理を中断 | `[Error] タスクが見つかりません。\n  原因: ID=99 のタスクは存在しません。\n  対処: task list で有効なIDを確認してください。` |
+| 不正なステータス遷移（`StateConflictError`） | 処理を中断 | `[Error] このタスクは開始できません。\n  原因: archived のタスクは in_progress に変更できません。\n  対処: タスクのステータスを確認してください。` |
+| 解禁日前の開始（`StateConflictError`） | 処理を中断 | `[Error] このタスクはまだ解禁されていません。\n  原因: scheduled_date (2026-12-01) が未来のため着手できません。\n  対処: 解禁日 (2026-12-01) 以降に start を実行してください。` |
+| プロジェクト名の重複・移動先の未登録 | 処理を中断 | `[Error] 同名のプロジェクトが既に存在します。` ほか。移動先が未登録なら `NotFoundError` |
+| 保存先ファイルが存在しない | 空データとして扱い継続（警告は出さない） | — |
+| 保存先ファイルの読み込み失敗（YAML が壊れている等） | **未対応**。例外がそのまま表示される。`.bak` が残っていれば手で戻す | トレースバック |
+| ファイル書き込み失敗 | 一時ファイルを破棄し、本体は無変更のまま例外を伝える（`.bak` からの復元経路も残す） | 例外（ディスク容量・権限など） |
 
 ---
 
 ## パフォーマンス設計
 
-- **JSONファイルの全件読み込み**: 1 コマンド実行あたり 1 回のみ `load()` を呼ぶ。複数回 I/O しない
-- **検索**: `Array.prototype.filter` + 文字列 `includes` で十分（最大 10,000 件でも数ミリ秒以内）
-- **タイムアウト**: GitHub API 呼び出しには `AbortController` で 5 秒のタイムアウトを設定
+- **YAMLファイルの全件読み込み**: 1 コマンド実行あたり、対象ストレージの `load()` を必要最小限にとどめる。更新系は排他区間の中で `load()` → 変更 → `save()` を1回で行う
+- **検索**: リスト内包表記と文字列の `in` 判定で十分（`TaskManager.search_tasks`。最大 10,000 件でも数ミリ秒以内）
 - **バックアップ**: `tasks.yaml` の書き込み時のみ `.bak` を作成し、完了後即削除。常時 2 ファイル以上保持しない
 - **排他とfsync**: 単一ストレージを操作するコマンドではロック取得1回・`fsync` 2回（本体と親ディレクトリ）。`move` と `time stop` は複数ファイルに跨るため複数回になる。実測で従来比 +0.35ms（中央値 7.18ms → 7.53ms）であり、ローカル操作 100ms 以内の要件に影響しない
 
@@ -1056,29 +895,313 @@ class AppError extends Error {
 
 ## セキュリティ設計
 
-- **`~/.task/` のパーミッション**: `GlobalConfigStorage.ensureDirectory()` 実行時に `fs.chmodSync("~/.task/", 0o700)` を設定し、オーナーのみアクセス可能にする
-- **プロジェクト設定ファイルのパーミッション（P1）**: `ConfigStorage.save()` 後に `fs.chmodSync(path, 0o600)` を実行し、オーナーのみ読み書き可能にする（`~/.task/projects/<name>/config.json` に GitHub Token を格納するため）
-- **`.taskcli-current` の `.gitignore` 追加（P1）**: `task start` 実行時に Git リポジトリルートの `.gitignore` に `.taskcli-current` を追記するか確認プロンプトを表示する
-- **コマンドインジェクション防止（P1）**: `simple-git` の API を使用し、シェルコマンドの文字列結合を行わない。GitHub API リクエストのパラメータは `encodeURIComponent` でエスケープする
+- **`~/.task-py/` のパーミッション**: 各ストレージの `ensure_directory()`（`GlobalConfigStorage` / `FileStorage` / `RoutineStorage` / `DailyLogStorage` / `TimerStorage`）が `os.chmod(<ディレクトリ>, 0o700)` を設定し、オーナーのみアクセス可能にする。排他用のロックファイルは `0o600` で作る
+- **Web GUI の面**: 127.0.0.1 にのみ待ち受け、Host 検証と書き込みの出自検査（CSRF）を持つ。詳細は「ローカル Web GUI」節を参照
+- **未実装の機能の安全上の考慮**（GitHub トークンの保管・コマンドインジェクション防止など）は、「未実装の設計」節にまとめている
 
 ---
 
 ## テスト戦略
 
-### ユニットテスト（`src/**/*.test.ts`）
+テストは pytest で、`tests/` に置く。
 
-- `TaskManager`: 各メソッドの正常系・異常系（ステータス遷移違反、ID不存在など）
-- `GitService`: `formatBranchName` のスラッグ変換ロジック
-- `FileStorage`: バックアップ・リストアのロジック（モックファイルシステム使用）
-- `Renderer`: 期限切れ・長タイトルのトリミングなど表示ロジック
+### ユニットテスト
+
+- `TaskManager` と `TaskCrudUseCase`（`tests/test_usecases.py`）: 各メソッドの正常系・異常系（ステータス遷移違反、ID不存在、保存前の検証など）
+- モデル（`tests/test_models.py`）: 制約・ステータス遷移・日付形式
+- ストレージ（`tests/test_storage.py` / `tests/test_atomic.py`）: バックアップ・アトミック書き込み・排他
+- `ProjectService`（`tests/test_project_service.py`）・`DailyService`（`tests/test_daily_service.py`）・`TimerService`（`tests/test_timer_service.py`）
+- 表示ロジック（`tests/test_project_list.py` ほか）: 長い名前の整列・色分けなど
 
 ### 統合テスト
 
-- `task add` → `task start` → `task done` の一連のフロー（実際のファイル I/O を使用）
-- `FileStorage` のバックアップ復元（書き込み途中でのクラッシュをシミュレート）
+- ユースケース層の一連のフロー（追加・開始・完了・アーカイブ・移動・削除。実際のファイル I/O を使用。`tests/test_usecases.py` / `tests/test_time_tracking_usecase.py`）
+- 同時実行の排他（`tests/test_concurrency.py`）
+- Web API の読み書き・競合検出（`tests/test_web_api.py` / `tests/test_web_write.py`）、MCP サーバー（`tests/test_mcp_server.py`）
+- `migrate` と `reset` のバックアップ世代（`tests/test_cli_reset.py` / `tests/test_backup.py`）
+
+### 文書の現行性
+
+- `tests/procedures/test_functional_design_currency.py` が、本書が TypeScript 版時代の記述に戻らないこと・書かれたパスとコマンドが実在することを検査する
 
 ### E2Eテスト（手動）
 
-- Gitリポジトリありの環境で `task start` → ブランチ自動作成を確認
-- Gitリポジトリなしの環境で `task start` → 警告表示のみでクラッシュしないことを確認
-- `task done --pr` での PR 作成（テスト用 GitHub リポジトリを使用）
+- 実機で `task-py` を一時的な `HOME` で起動し、`add` → `start` → `done`、`reset` の複数回実行、`project list` の長い名前の表示を確認する
+
+---
+
+## 未実装の設計（Git・GitHub 連携 P1）
+
+> **この節の機能は Python 版には未実装である。** `src/` に Git・GitHub を扱う処理はなく（`Task.branch` は移行データから引き継ぐ表示用の欄にすぎない）、`task-py` に `config` / `sync` / `import` コマンドも、`start` のブランチ作成も、`done --pr` もない。
+>
+> ここにあるのは、`docs/product-requirements.md` の P1 要求（Git ブランチ連携・コミット自動タグ付け・GitHub Issues 連携・PR 自動作成）に対する**設計案**で、TypeScript 版の時代に書かれたものである。設計の意図を残すために言語に依存しない形で書き直してあり、**実装するときは** Python 版の層構造（`docs/architecture.md`）とストレージ（YAML）に合わせて読み替える。実装済みの機能と取り違えないこと。
+>
+> Git・GitHub 連携のほか、それと合わせて検討されていた一覧表示の拡張案（優先度・期限の列。下記「一覧表示の追加列」）も含む。優先度と期限の列は Git と無関係だが、CLI の一覧には未実装である。
+
+### 追加で必要になるサブコマンド
+
+| コマンド | 引数 / オプション | 処理概要 |
+|---------|----------------|---------|
+| `task-py start <id>` | — | ステータス変更に加えて Git ブランチを作成し、コミットフックをインストールする |
+| `task-py done <id>` | `--pr` | ステータス変更。`--pr` を付けるとプッシュして PR を作成する |
+| `task-py config setup` | — | 対話式ウィザードで GitHub Token・Owner・Repo を一括設定する |
+| `task-py config set <key> <value>` | — | プロジェクト別設定値を個別に保存する（GitHub Token 等） |
+| `task-py sync` | — | GitHub Issues と双方向同期する |
+| `task-py import --github` | — | GitHub Issues からローカルにインポートする |
+
+### Git 操作（ブランチ・コミットフック）
+
+**責務**: Git ブランチ操作とコミットフックの管理。Git 操作は専用ライブラリの API を通し、シェルコマンドの文字列結合は行わない。
+
+| 操作 | 説明 |
+|---|---|
+| Git リポジトリか判定 | カレントディレクトリが Git リポジトリかどうか |
+| 現在のブランチを取得 | |
+| ブランチの存在確認 | |
+| ブランチを作成して切り替え / 既存ブランチへ切り替え | `task-py start` から使う |
+| コミットメッセージフックのインストール | `prepare-commit-msg` を置く（下記） |
+| プッシュ | `task-py done --pr` から使う |
+| ブランチ名の生成 | タスク ID とタイトルから生成する（下記） |
+
+**ブランチ命名規則**:
+- フォーマット: `feature/task-<id>-<slug>`
+- スラッグ変換: タイトルを小文字英数字+ハイフンに変換。非 ASCII 文字（日本語等）は除去。連続するハイフンは 1 つに圧縮。先頭・末尾のハイフンも除去
+- 最大長: 63文字（超過時は切り詰め）
+- スラッグが空になる場合（タイトルが全角文字のみ等）は `task-<id>` のみとする
+
+**スラッグ変換例**:
+
+| 入力タイトル | 変換後スラッグ |
+|-----------|-------------|
+| `"ユーザー認証機能の実装"` | `""` → ブランチ名: `feature/task-1` |
+| `"Fix: Login Bug #123"` | `"fix-login-bug-123"` |
+| `"Add OAuth 2.0 Support"` | `"add-oauth-2-0-support"` |
+| `"user authentication"` | `"user-authentication"` |
+
+**コミットフック仕様** (`.git/hooks/prepare-commit-msg`):
+```sh
+#!/bin/sh
+# TaskCLI: auto-append task number
+TASK_ID=$(cat "$(git rev-parse --show-toplevel)/.taskcli-current" 2>/dev/null)
+if [ -n "$TASK_ID" ]; then
+  echo "" >> "$1"
+  echo "[Task #$TASK_ID]" >> "$1"
+fi
+```
+- `task-py start <id>` 実行時に Git リポジトリルートの `.taskcli-current` にタスクIDを保存する
+- `task-py done <id>` 実行時に `.taskcli-current` を削除する
+- `.taskcli-current` は `.gitignore` に追加する（追記前に確認プロンプトを出す）
+
+### GitHub 連携（Issues 同期・PR 作成）
+
+**責務**: GitHub Issues の同期・PR 作成
+
+| 操作 | 説明 |
+|---|---|
+| PR を作成 | タスクとベースブランチを受け取り、PR の URL を返す |
+| Issues を同期 | 結果は `created`（ローカルに新規作成したタスク数）・`updated`（更新したタスク数）・`pushed`（GitHub Issues に反映したタスク数） |
+| Issues をインポート | GitHub Issues からタスクを作る |
+| 設定済みか判定 | Token・Owner・Repo が揃っているか |
+
+**PR 本文テンプレート**:
+```markdown
+## 概要
+{task.description が空でなければ記載。空の場合は「{task.title} の実装」}
+
+## 関連タスク
+Task #{task.id}
+```
+
+**依存関係**: プロジェクト別設定、HTTP クライアント（標準ライブラリで足りる）
+
+### プロジェクト別設定
+
+プロジェクト別設定は、Python 版の層構造に合わせて `~/.task-py/projects/<name>/config.yaml` に保存する（`docs/architecture.md` の機密情報の記述と一致）。保存時にファイルパーミッションを `600` に設定する。
+
+| 項目 | 型 | 説明 |
+|---|---|---|
+| `github_token` | `str \| None` | GitHub Personal Access Token |
+| `github_owner` | `str \| None` | GitHub リポジトリのオーナー名 |
+| `github_repo` | `str \| None` | GitHub リポジトリ名 |
+| `default_branch` | `str` | デフォルトのベースブランチ（既定 `main`） |
+
+**バリデーション仕様**:
+
+| キー | バリデーション |
+|-----|-------------|
+| `github_token` | `ghp_` または `github_pat_` で始まる文字列。形式が不正な場合は警告を表示して保存（API エラーは sync / PR 作成時に検出） |
+| `github_owner` | 英数字・ハイフンのみ（GitHub ユーザー名規則）。空文字は不可 |
+| `github_repo` | 英数字・ハイフン・アンダースコア・ドットのみ。空文字は不可 |
+| `default_branch` | 空文字は不可。デフォルト値: `main` |
+
+コマンドで指定するキーはハイフン区切り（`github-token`）、保存される項目名は snake_case（`github_token`）とする。
+
+**設定ファイルの例**:
+```yaml
+github_token: null
+github_owner: null
+github_repo: null
+default_branch: main
+```
+
+### 一覧表示の追加列
+
+P0 の一覧（ID / Status / Title）に、次の列を足す案。
+
+```
+[Project: my-app]
+ ID   Status       Priority  Title                            Branch                              Due
+ 1-1  in_progress  high      ユーザー認証機能の実装            feature/task-1-user-authentication  2026-03-31
+ 1-2  open         medium    データエクスポート機能             -                                   -
+ 1-3  completed    low       初期セットアップ                   feature/task-3-initial-setup        -
+```
+
+| 列 | 説明 | フォーマット |
+|---|---|---|
+| Priority | 優先度 | カラーコード付き文字列 |
+| Branch | ブランチ名（Git 連携を実装した場合のみ意味を持つ。`Task.branch` は現状、移行データの表示用） | 最大35文字（超過は`…`で省略）、なければ `-` |
+| Due | 期限 | `YYYY-MM-DD`、なければ `-`、期限切れは赤 |
+
+**期限の色分け**: 期限切れ（今日以前）は赤、残り 3 日以内は黄、それ以外はデフォルト色。
+
+### ユースケース
+
+以下の図で `CLI` が `TaskManager` を直接呼んでいるのは TypeScript 版の名残である。実装するときは、実装済みのユースケース図（UC-0〜UC-3）と同じく `CLI → TaskCrudUseCase → TaskManager` の経路にする。
+
+#### task-py start（Git ブランチ作成 + コミットフックインストール）
+
+Inbox のタスクに `task-py start` を実行した場合は、ステータスだけを `in_progress` に更新し、「プロジェクトに移動してから Git 連携を使用してください」という情報メッセージを表示する。
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant TaskManager
+    participant Git as Git 操作
+    participant FileStorage
+
+    User->>CLI: task-py start 1
+    CLI->>TaskManager: get_task(1)
+    TaskManager->>FileStorage: load()
+    FileStorage-->>TaskManager: list[Task]
+    TaskManager-->>CLI: Task
+    CLI->>Git: Git リポジトリか判定
+    alt Gitリポジトリあり
+        Git-->>CLI: true
+        CLI->>Git: ブランチの存在確認("feature/task-1-...")
+        alt ブランチなし
+            Git-->>CLI: false
+            CLI->>User: "フック自動インストールの確認プロンプト"
+            User-->>CLI: OK
+            CLI->>Git: ブランチを作成して切り替え("feature/task-1-...")
+            Git-->>CLI: 成功
+            CLI->>Git: コミットフックをインストール(1)
+            Git-->>CLI: 成功
+        else ブランチあり
+            Git-->>CLI: true
+            CLI->>Git: ブランチへ切り替え("feature/task-1-...")
+            Git-->>CLI: 成功
+            CLI->>Git: フックのインストール済みを確認
+            alt フック未インストール
+                Git-->>CLI: false
+                CLI->>User: "フック自動インストールの確認プロンプト"
+                User-->>CLI: OK
+                CLI->>Git: コミットフックをインストール(1)
+                Git-->>CLI: 成功
+            else フック導入済み
+                Git-->>CLI: true
+                Note over CLI,Git: .taskcli-current を taskId で上書き
+            end
+        end
+    else Gitリポジトリなし
+        Git-->>CLI: false
+        CLI-->>User: "[Warning] Gitリポジトリが見つかりません。ステータスのみ更新します。"
+    end
+    CLI->>TaskManager: start_task(1)
+    TaskManager->>FileStorage: save(tasks)
+    FileStorage-->>TaskManager: 成功
+    TaskManager-->>CLI: 更新した Task
+    CLI-->>User: "タスク #1 を開始しました<br/>ブランチ: feature/task-1-user-authentication"
+```
+
+#### task-py done --pr（タスク完了 + PR作成）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant TaskManager
+    participant Git as Git 操作
+    participant GitHub as GitHub 連携
+    participant FileStorage
+
+    User->>CLI: task-py done 1 --pr
+    CLI->>TaskManager: get_task(1)
+    TaskManager-->>CLI: Task (status: in_progress)
+    CLI->>User: "PR作成の確認プロンプト<br/>ベースブランチ: main"
+    User-->>CLI: OK
+    CLI->>Git: プッシュ("feature/task-1-...")
+    Git-->>CLI: 成功
+    CLI->>GitHub: PR を作成(task, "main")
+    GitHub-->>CLI: PR URL
+    CLI->>TaskManager: complete_task(1)
+    TaskManager->>FileStorage: save(tasks)
+    FileStorage-->>TaskManager: 成功
+    TaskManager-->>CLI: 更新した Task
+    CLI-->>User: "タスク #1 を完了しました<br/>PR: https://github.com/.../pull/42"
+```
+
+#### task-py sync（GitHub Issues 同期）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant GitHub as GitHub 連携
+    participant TaskManager
+    participant FileStorage
+
+    User->>CLI: task-py sync
+    CLI->>GitHub: 設定済みか判定
+    alt 未設定
+        GitHub-->>CLI: false
+        CLI-->>User: "[Error] GitHub Token が未設定です。<br/>対処: task-py config set github-token <token>"
+    else 設定済み
+        GitHub-->>CLI: true
+        CLI->>GitHub: Issues を同期
+        GitHub->>GitHub: GitHub Issues を取得
+        GitHub->>TaskManager: ローカルタスクと差分比較
+        TaskManager->>FileStorage: load()
+        FileStorage-->>TaskManager: list[Task]
+        TaskManager-->>GitHub: list[Task]
+        GitHub->>TaskManager: 差分を更新（create_task / update_task）
+        TaskManager->>FileStorage: save(tasks)
+        GitHub-->>CLI: 同期結果
+        CLI-->>User: "同期完了: 新規3件、更新2件、GitHub反映1件"
+    end
+```
+
+### エラー
+
+| エラー種別 | 処理 | 表示例 |
+|-----------|------|-------|
+| Gitリポジトリなし | ブランチ操作をスキップ、警告表示 | `[Warning] Gitリポジトリが見つかりません。ステータスのみ更新します。` |
+| Gitブランチ操作失敗 | 元のブランチに戻す、処理を中断 | `[Error] ブランチの作成に失敗しました。\n  原因: <git エラーメッセージ>\n  対処: git status を確認し、未コミットの変更を解消してください。` |
+| GitHub Token 未設定 | 処理を中断 | `[Error] GitHub Token が未設定です。\n  原因: GitHub 連携機能には設定が必要です。\n  対処: task-py config set github-token <token> で設定してください。` |
+| GitHub API エラー | 処理を中断 | `[Error] GitHub API リクエストが失敗しました。\n  原因: <HTTPステータスコード> <メッセージ>\n  対処: Token の権限と有効期限を確認してください。` |
+| ネットワークタイムアウト | 処理を中断 | `[Error] ネットワークタイムアウト（5秒）が発生しました。\n  原因: GitHub API に接続できません。\n  対処: インターネット接続を確認してください。` |
+| Inbox タスクへの `task-py start` | ステータスのみ更新、情報メッセージ表示 | `[Info] タスク #1 を開始しました。Git 連携を使用する場合は task-py move 1 <project> でプロジェクトに移動してください。` |
+
+### 性能と安全上の考慮
+
+- **タイムアウト**: GitHub API 呼び出しには 5 秒のタイムアウトを設定する
+- **設定ファイルのパーミッション**: 保存後に `600` を設定し、オーナーのみ読み書きできるようにする（Token を格納するため）
+- **`.taskcli-current` の `.gitignore` 追加**: `task-py start` 実行時に Git リポジトリルートの `.gitignore` へ追記するか、確認プロンプトを表示する
+- **コマンドインジェクション防止**: Git 操作は専用ライブラリの API を使い、シェルコマンドの文字列結合を行わない。GitHub API リクエストのパラメータは URL エンコードしてから組み立てる
+
+### テスト観点
+
+- ブランチ名の生成: スラッグ変換ロジック（日本語のみのタイトル・連続ハイフン・最大長）
+- Git リポジトリありの環境で `task-py start` → ブランチ自動作成を確認する
+- Git リポジトリなしの環境で `task-py start` → 警告表示のみでクラッシュしないことを確認する
+- `task-py done --pr` での PR 作成（テスト用 GitHub リポジトリを使用）

@@ -288,7 +288,7 @@ git commit -m "feat(cli): --sort オプションを追加"
 
 **設定ファイル**: `src/cli/index.ts`
 
-**関連ドキュメント**: [機能設計書 > CLIレイヤー](./functional-design.md#CLIレイヤー-srccli)
+**関連ドキュメント**: [機能設計書 > コンポーネント設計](./functional-design.md#コンポーネント設計)（CLIレイヤー）
 
 ---
 
@@ -384,7 +384,7 @@ git commit -m "feat(cli): --sort オプションを追加"
 
 **必要なスコープ**: `repo`（Issues・PR の読み書きに必要な最低限）
 
-**関連ドキュメント**: [機能設計書 > GitHub Issues との同期](./functional-design.md#ユースケース図)
+**関連ドキュメント**: [機能設計書 > 未実装の設計（Git・GitHub 連携 P1）](./functional-design.md)（GitHub Issues との同期。Python 版には未実装）
 
 ---
 
