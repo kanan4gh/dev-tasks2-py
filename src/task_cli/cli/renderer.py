@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime, timezone
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
@@ -73,6 +74,11 @@ def render_task_table(
     console.print(table)
 
 
+def _today() -> str:
+    """`start` の判定（services/task_manager.py）と同じ「今日」の定義。ずらさないこと。"""
+    return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+
+
 def render_task_detail(
     task: Task,
     active_project: str | None,
@@ -94,6 +100,10 @@ def render_task_detail(
         lines.append(f"[bold]Branch[/bold]   {task.branch}")
     if task.due_date:
         lines.append(f"[bold]Due[/bold]      {task.due_date}")
+    if task.scheduled_date:
+        # 解禁日は `start` の可否を決める。未来なら、そのことも見せる
+        note = "  [yellow]（まだ着手できません）[/yellow]" if task.scheduled_date > _today() else ""
+        lines.append(f"[bold]Sched[/bold]    {task.scheduled_date}{note}")
     lines.append(f"[bold]Created[/bold]  {task.created_at.strftime('%Y-%m-%d %H:%M')}")
     lines.append(f"[bold]Updated[/bold]  {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
     if task.completed_at is not None:

@@ -113,6 +113,17 @@ def delete(
         raise typer.Exit(code=1)
 
 
+_BAR_WIDTH = 10
+
+
+def _bar(rate: float) -> str:
+    """達成率(0.0〜1.0)を、固定幅の文字バーにする。"""
+    # 四捨五入は「5 を切り上げ」にそろえる（組み込みの round は偶数丸めで、
+    # 25% が 2 マスになり、隣の数値の見え方とずれる）。範囲外の値は端に丸める
+    filled = min(_BAR_WIDTH, max(0, int(rate * _BAR_WIDTH + 0.5)))
+    return "█" * filled + "░" * (_BAR_WIDTH - filled)
+
+
 @daily_app.command("stats")
 @handle_app_errors
 def stats() -> None:
@@ -129,7 +140,7 @@ def stats() -> None:
     table.add_column("達成率", justify="right")
     for entry in result:
         rate = entry["rate"]
-        rate_str = f"{rate:.0%}" if rate is not None else "--"
+        rate_str = f"{_bar(rate)} {rate:.0%}" if isinstance(rate, (int, float)) else "--"
         table.add_row(str(entry["date"]), str(entry["done"]), str(entry["total"]), rate_str)
     console.print(table)
 
