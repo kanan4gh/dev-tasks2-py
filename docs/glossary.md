@@ -2,10 +2,10 @@
 
 ## 概要
 
-このドキュメントは、TaskCLI プロジェクト内で使用される用語を統一的に定義します。
+このドキュメントは、TaskCLI（`task-py`）プロジェクト内で使用される用語を統一的に定義します。
 新しいメンバーのオンボーディングや、ドキュメント・コード間での用語の一貫性維持に使用してください。
 
-**更新日**: 2026-02-26
+**更新日**: 2026-11-15（Python 版の実態に現行化。Git・GitHub 連携の用語は要求として残し、【未実装】と明記した）
 
 ---
 
@@ -13,19 +13,19 @@
 
 ### プロジェクト (Project)
 
-**定義**: TaskCLI でタスクをまとめる名前付きグループ。グローバルストレージ（`~/.task/projects/<name>/`）で管理される。
+**定義**: TaskCLI でタスクをまとめる名前付きグループ。グローバルストレージ（`~/.task-py/projects/<name>/`）で管理される。
 
-**説明**: 作業ディレクトリとは独立した概念。`task project create <name>` で作成し、`task project use <name>` でアクティブにする。どのディレクトリからでも同じプロジェクトのタスクを参照できる。
+**説明**: 作業ディレクトリとは独立した概念。`task-py project create <name>` で作成する（作成したプロジェクトは同時にアクティブになる）。別のプロジェクトへは `task-py project use <name>` で切り替える。どのディレクトリからでも同じプロジェクトのタスクを参照できる。
 
 **関係**:
-- 1プロジェクト = 1タスクの集合（`~/.task/projects/<name>/tasks.json`）
-- 1プロジェクト = 最大1つの GitHub リポジトリ（P1、未設定でも使用可能）
+- 1プロジェクト = 1タスクの集合（`~/.task-py/projects/<name>/tasks.yaml`）
+- 1プロジェクト = 最大1つの GitHub リポジトリ（P1、未設定でも使用可能。**未実装**）
 - タスクの集合は **1ユーザーに帰属する**（MVP では個人ツール）
 - 同じリポジトリで作業する複数の開発者はそれぞれ独立したプロジェクト・タスク集合を持つ
 
 ```
-田中のPC  ~/.task/projects/my-app/tasks.json  (田中のタスク)  ←→  GitHub: org/my-app (P1)
-鈴木のPC  ~/.task/projects/my-app/tasks.json  (鈴木のタスク)  ←→  GitHub: org/my-app (P1)
+田中のPC  ~/.task-py/projects/my-app/tasks.yaml  (田中のタスク)  ←→  GitHub: org/my-app (P1・未実装)
+鈴木のPC  ~/.task-py/projects/my-app/tasks.yaml  (鈴木のタスク)  ←→  GitHub: org/my-app (P1・未実装)
 ```
 
 **関連用語**:
@@ -36,20 +36,20 @@
 
 ### アクティブプロジェクト (Active Project)
 
-**定義**: 現在 `task` コマンドの操作対象となっているプロジェクト。
+**定義**: 現在 `task-py` コマンドの操作対象となっているプロジェクト。
 
-**説明**: `task project use <name>` で切り替える。`~/.task/config.json` の `activeProject` フィールドに保存される。未設定の場合は [Inbox](#inbox) モードになる。
+**説明**: `task-py project use <name>` で切り替える。`~/.task-py/config.yaml` の `active_project` フィールドに保存される。未設定の場合は [Inbox](#inbox) モードになる。
 
 **切り替えコマンド**:
 ```bash
-task project use my-app   # アクティブプロジェクトを my-app に設定
-task inbox                # アクティブプロジェクトを解除し Inbox モードに切り替え
-task project list         # 全プロジェクト一覧とタスク数を表示
+task-py project use my-app   # アクティブプロジェクトを my-app に設定
+task-py inbox                # アクティブプロジェクトを解除し Inbox モードに切り替え
+task-py project list         # 全プロジェクト一覧とタスク数を表示
 ```
 
-**表示**: `task list` 実行時にヘッダーとして `[Project: <name>]` を常時表示。
+**表示**: `task-py list` 実行時にヘッダーとして `[Project: <name>]` を常時表示。
 
-**実装**: `~/.task/config.json`（`activeProject` フィールド）、`GlobalConfigService`
+**実装**: `~/.task-py/config.yaml`（`active_project` フィールド）、`GlobalConfigService`（`src/task_cli/services/global_config_service.py`）
 
 ---
 
@@ -57,24 +57,24 @@ task project list         # 全プロジェクト一覧とタスク数を表示
 
 **定義**: アクティブプロジェクトが未設定のときにタスクを保存する場所。GTD の「収集トレイ」に相当する。
 
-**説明**: プロジェクトを作成・選択する前でも `task add` でタスクを収集できる。`task move <id> <project>` でプロジェクトに移動可能。
+**説明**: プロジェクトを作成・選択する前でも `task-py add` でタスクを収集できる。`task-py move <id> <project>` でプロジェクトに移動可能。
 
 **操作コマンド**:
 ```bash
-task inbox                    # Inbox モードに切り替え
-task add "やること"           # Inbox にタスクを追加
-task list                     # Inbox モード時のタスク一覧（ヘッダーに [Inbox] を表示）
-task list --inbox             # プロジェクトモード中に inbox のタスク一覧を表示
-task move 1 my-app            # Inbox のタスク #1 を my-app プロジェクトに移動
-task move 1 inbox             # プロジェクトのタスクを Inbox に戻す（双方向）
+task-py inbox                    # Inbox モードに切り替え
+task-py add "やること"           # Inbox にタスクを追加
+task-py list                     # Inbox モード時のタスク一覧（ヘッダーに [Inbox] を表示）
+task-py list --inbox             # プロジェクトモード中に inbox のタスク一覧を表示
+task-py move 1 my-app            # Inbox のタスク #1 を my-app プロジェクトに移動
+task-py move 1 inbox             # プロジェクトのタスクを Inbox に戻す（双方向）
 ```
 
 **制約**:
-- Inbox のタスクに `task start` を実行すると、ステータスは `in_progress` に更新されるが「プロジェクトに移動してから Git 連携（P1）を使用してください」という情報メッセージが表示される
+- Inbox のタスクに `task-py start` を実行すると、ステータスは `in_progress` に更新される。「プロジェクトに移動してから Git 連携（P1）を使用してください」という情報メッセージを出す要求は、Git 連携とセットで**未実装**
 
-**表示**: `task list` 実行時にヘッダーとして `[Inbox]` を表示。
+**表示**: `task-py list` 実行時にヘッダーとして `[Inbox]` を表示。
 
-**保存先**: `~/.task/inbox/tasks.json`
+**保存先**: `~/.task-py/inbox/tasks.yaml`
 
 **関連用語**: [アクティブプロジェクト](#アクティブプロジェクト-active-project)
 
@@ -84,18 +84,18 @@ task move 1 inbox             # プロジェクトのタスクを Inbox に戻�
 
 **定義**: ユーザーが完了すべき作業の単位。
 
-**説明**: TaskCLI が管理する中心的なエンティティ。タイトル・説明・ステータス・優先度・期限・紐付きブランチを持つ。`task add` コマンドで作成され、`task done` で完了に遷移する。
+**説明**: TaskCLI が管理する中心的なエンティティ。タイトル・説明・ステータス・優先度・期限・紐付きブランチを持つ。`task-py add` コマンドで作成され、`task-py done` で完了に遷移する。
 
 **関連用語**:
 - [タスクステータス](#タスクステータス-task-status): タスクの進行状態
 - [タスク優先度](#タスク優先度-task-priority): タスクの重要度
-- [作業中タスク](#作業中タスク-current-task): 現在 `task start` で開始中のタスク
+- [作業中タスク](#作業中タスク-current-task未実装): 現在 `task-py start` で開始中のタスク（Git 連携は未実装）
 
 **使用例**:
-- 「タスクを追加する」: `task add "実装内容"` を実行してタスクを作成する
-- 「タスクを開始する」: `task start <id>` を実行してステータスを `in_progress` に変更する
+- 「タスクを追加する」: `task-py add "実装内容"` を実行してタスクを作成する
+- 「タスクを開始する」: `task-py start <id>` を実行してステータスを `in_progress` に変更する
 
-**データモデル**: `src/types/index.ts`
+**データモデル**: `src/task_cli/models/task.py`（`Task`）
 
 **英語表記**: Task
 
@@ -109,27 +109,27 @@ task move 1 inbox             # プロジェクトのタスクを Inbox に戻�
 
 | 値 | 日本語 | 意味 | コマンド |
 |---|--------|------|---------|
-| `open` | 未着手 | タスク作成直後の初期状態 | `task add` で設定 |
-| `in_progress` | 進行中 | 現在作業中の状態 | `task start <id>` で遷移 |
-| `completed` | 完了 | 作業が終わった状態 | `task done <id>` で遷移 |
-| `archived` | アーカイブ済み | 参照用に残す非アクティブな状態 | `task archive <id>` で遷移 |
+| `open` | 未着手 | タスク作成直後の初期状態 | `task-py add` で設定 |
+| `in_progress` | 進行中 | 現在作業中の状態 | `task-py start <id>` で遷移 |
+| `completed` | 完了 | 作業が終わった状態 | `task-py done <id>` で遷移 |
+| `archived` | アーカイブ済み | 参照用に残す非アクティブな状態 | `task-py archive <id>` で遷移 |
 
 **状態遷移図**:
 ```mermaid
 stateDiagram-v2
-    [*] --> open: task add
-    open --> in_progress: task start
-    in_progress --> completed: task done
-    open --> archived: task archive
-    completed --> archived: task archive
+    [*] --> open: task-py add
+    open --> in_progress: task-py start
+    in_progress --> completed: task-py done
+    open --> archived: task-py archive
+    completed --> archived: task-py archive
 ```
 
 **ビジネスルール**:
 - 逆方向の遷移（再オープン）は MVP スコープ外
 - `archived` からの遷移は不可
-- `in_progress` → `archived` への直接遷移は不可（`task done` で `completed` に遷移してから `task archive` を使用する）
+- `in_progress` → `archived` への直接遷移は不可（`task-py done` で `completed` に遷移してから `task-py archive` を使用する）
 
-**実装**: `src/types/index.ts`（`type TaskStatus`）、`src/services/TaskManager.ts`
+**実装**: `src/task_cli/models/task.py`（`TaskStatus`）、`src/task_cli/services/task_manager.py`
 
 ---
 
@@ -147,15 +147,17 @@ stateDiagram-v2
 
 **使用例**:
 ```bash
-task add "セキュリティ脆弱性の修正" --priority high
-task list --sort priority  # high → medium → low の順で表示
+task-py add "セキュリティ脆弱性の修正" --priority high
+# task-py list --sort priority（high → medium → low の順で表示）は CLI に未実装。Web GUI の一覧 API にはある
 ```
 
-**実装**: `src/types/index.ts`（`type TaskPriority`）
+**実装**: `src/task_cli/models/task.py`（`Priority`）
 
 ---
 
-### ブランチスラッグ (Branch Slug)
+### ブランチスラッグ (Branch Slug)【未実装】
+
+> **要求のみ。Python 版には未実装**（Git・GitHub 連携は PRD の P1 要求として残している。設計案は [機能設計書 > 未実装の設計](./functional-design.md#未実装の設計gitgithub-連携-p1)）。
 
 **定義**: タスクのタイトルをブランチ名に使用できる形式に変換した文字列。
 
@@ -169,18 +171,20 @@ task list --sort priority  # high → medium → low の順で表示
 | `"Add OAuth 2.0 Support"` | `add-oauth-2-0-support` | `feature/task-2-add-oauth-2-0-support` |
 | `"ユーザー認証機能の実装"` | `""`（空） | `feature/task-3` |
 
-**実装**: `src/utils/slug.ts`（スラッグ変換の純粋関数を実装。`GitService.formatBranchName()` が内部で呼び出す）
+**実装**: 未実装（TypeScript 版ではスラッグ変換の純粋関数を `GitService` が内部で呼んでいた）
 
 ---
 
-### 作業中タスク (Current Task)
+### 作業中タスク (Current Task)【未実装】
 
-**定義**: `task start <id>` で開始された、現在進行中のタスク。
+> **要求のみ。Python 版には未実装**（Git・GitHub 連携の一部）。
 
-**説明（P1）**: `task start` 実行時に Git リポジトリルートの `.taskcli-current` ファイルにタスク ID が保存される。Git の `prepare-commit-msg` フックがこのファイルを参照し、コミットメッセージに `[Task #<id>]` を自動付与する。`task done` 実行時に削除される。
+**定義**: `task-py start <id>` で開始された、現在進行中のタスク。
+
+**説明（P1）**: `task-py start` 実行時に Git リポジトリルートの `.taskcli-current` ファイルにタスク ID が保存される。Git の `prepare-commit-msg` フックがこのファイルを参照し、コミットメッセージに `[Task #<id>]` を自動付与する。`task-py done` 実行時に削除される。
 
 **関連用語**:
-- [コミット自動タグ付け](#コミット自動タグ付け-commit-auto-tagging)
+- [コミット自動タグ付け](#コミット自動タグ付け-commit-auto-tagging未実装)
 
 **ファイルパス（P1）**: `<Git リポジトリルート>/.taskcli-current`（`.gitignore` への追記を推奨）
 
@@ -195,8 +199,8 @@ task list --sort priority  # high → medium → low の順で表示
 作業セッションの追記では `updated_at` を更新しない。時間の記録はタスク内容の編集ではないからで、これは [完了日時](#完了日時-completed-at) を別フィールドにした理由と同じである。
 
 **記録の経路**:
-- タイマー: `task time start --task <id>` → `task time stop`
-- 手動: `task time log <id> <duration>`
+- タイマー: `task-py time start --task <id>` → `task-py time stop`
+- 手動: `task-py time log <id> <duration>`
 
 **関連用語**:
 - [タイマー状態](#タイマー状態-timer-state)
@@ -210,7 +214,7 @@ task list --sort priority  # high → medium → low の順で表示
 
 **説明**: `~/.task-py/timer.yaml` に保存する。残り時間・経過時間は**この記録から都度計算**し、カウントダウンした値を保持しない。そのため、書いたプロセスが落ちても・別プロセス（MCP サーバー、ローカル Web GUI）から読んでも・端末がスリープしても、同じ値が得られる。
 
-実行中タイマーは同時に1本のみ。プロセスの生死はタイマーの有効性の判定に使わない（PID は再利用されるため信用できない）。残ってしまった記録への対処は、`task time start` 時に検出してエラーにする（`--force` で置き換え）ことだけで足りる。
+実行中タイマーは同時に1本のみ。プロセスの生死はタイマーの有効性の判定に使わない（PID は再利用されるため信用できない）。残ってしまった記録への対処は、`task-py time start` 時に検出してエラーにする（`--force` で置き換え）ことだけで足りる。
 
 **関連用語**:
 - [作業セッション](#作業セッション-work-session)
@@ -235,15 +239,17 @@ task list --sort priority  # high → medium → low の順で表示
 
 ---
 
-### コミット自動タグ付け (Commit Auto-tagging)
+### コミット自動タグ付け (Commit Auto-tagging)【未実装】
 
-**定義**: `task start` 後の `git commit` 時に、コミットメッセージ末尾へ `[Task #<id>]` を自動付与する機能。
+> **要求のみ。Python 版には未実装**（Git・GitHub 連携の一部）。
 
-**説明（P1）**: `task start <id>` 実行時に `.git/hooks/prepare-commit-msg` フックがインストールされる。フックは Git リポジトリルートの `.taskcli-current` を読み込み、ID をコミットメッセージに追記する。
+**定義**: `task-py start` 後の `git commit` 時に、コミットメッセージ末尾へ `[Task #<id>]` を自動付与する機能。
+
+**説明（P1）**: `task-py start <id>` 実行時に `.git/hooks/prepare-commit-msg` フックがインストールされる。フックは Git リポジトリルートの `.taskcli-current` を読み込み、ID をコミットメッセージに追記する。
 
 **使用例**:
 ```bash
-task start 5
+task-py start 5
 git commit -m "feat(cli): --sort オプションを追加"
 # → 実際のコミットメッセージ:
 # feat(cli): --sort オプションを追加
@@ -251,112 +257,70 @@ git commit -m "feat(cli): --sort オプションを追加"
 # [Task #5]
 ```
 
-**実装**: `src/services/GitService.ts`（`installCommitMsgHook`）
+**実装**: 未実装（TypeScript 版では `GitService` の `installCommitMsgHook`）
 
 ---
 
-### 同期 (Sync)（P1: v1.1）
+### 同期 (Sync)【未実装】
+
+> **要求のみ。Python 版には未実装**（PRD の P1: v1.1 の要求）。
 
 **定義**: ローカルのタスクデータと GitHub Issues を双方向に一致させる操作。
 
-**説明**: `task sync` コマンドで実行される。GitHub Issues の変更をローカルに取り込み、ローカルの変更を GitHub Issues に反映する。差分比較に基づいて最小限の変更を行う。
+**説明**: `task-py sync` コマンドで実行される。GitHub Issues の変更をローカルに取り込み、ローカルの変更を GitHub Issues に反映する。差分比較に基づいて最小限の変更を行う。
 
 **関連用語**:
-- [インポート](#インポート-import)
+- [インポート](#インポート-import未実装)
 
 ---
 
-### インポート (Import)（P1: v1.1）
+### インポート (Import)【未実装】
+
+> **要求のみ。Python 版には未実装**（PRD の P1: v1.1 の要求）。
 
 **定義**: GitHub Issues からローカルにタスクを一括取り込む一方向操作。
 
-**説明**: `task import --github` コマンドで実行される。[同期](#同期-sync) と異なり、ローカルから GitHub への反映は行わない。
+**説明**: `task-py import --github` コマンドで実行される。[同期](#同期-sync未実装) と異なり、ローカルから GitHub への反映は行わない。
 
 ---
 
 ## 技術用語
 
-### Commander.js
+### typer
 
-**定義**: Node.js 向けの CLI フレームワーク。サブコマンド・オプション・引数の解析を担う。
+**定義**: Python 向けの CLI フレームワーク。型ヒントからサブコマンド・オプション・引数の解析とヘルプを組み立てる。
 
-**本プロジェクトでの用途**: `src/cli/` レイヤーでコマンド解析に使用。`task add`, `task list` 等のサブコマンドを定義する。
+**本プロジェクトでの用途**: `src/task_cli/cli/` でコマンド解析に使用。`task-py add`, `task-py list` 等のサブコマンドを定義する。確認プロンプト（`task-py delete` の削除確認など）にも `typer.confirm` を使う。
 
-**バージョン**: ^12.0.0
-
-**選定理由**: 学習コストが低く、Node.js CLI のデファクトスタンダード。
-
-**設定ファイル**: `src/cli/index.ts`
+**設定ファイル**: `src/task_cli/cli/main.py`（`app` を組み立てる）
 
 **関連ドキュメント**: [機能設計書 > コンポーネント設計](./functional-design.md#コンポーネント設計)（CLIレイヤー）
 
 ---
 
-### simple-git
+### pydantic
 
-**定義**: Node.js から Git コマンドを安全に呼び出すためのライブラリ。
+**定義**: 型ヒントに基づくデータ検証ライブラリ。
 
-**本プロジェクトでの用途**: `src/services/GitService.ts` でブランチ作成・チェックアウト・プッシュ・リポジトリ検出に使用。シェル文字列結合を避けることでコマンドインジェクションを防止する。
-
-**バージョン**: ^3.0.0
-
-**選定理由**: Node.js からの Git 操作の抽象化ライブラリとしてデファクトスタンダード。
-
-**関連ドキュメント**: [アーキテクチャ設計書 > セキュリティ](./architecture.md#セキュリティアーキテクチャ)
+**本プロジェクトでの用途**: `Task`・`GlobalConfig` などのデータモデル（`src/task_cli/models/`）を定義し、YAML から読んだ値と保存前の値を検証する。検証に失敗した値は `InvalidTaskData`（保存前）または `StorageReadError`（読み込み時）として扱う。
 
 ---
 
-### Vitest
+### pytest
 
-**定義**: Vite ベースの TypeScript ネイティブ対応テストフレームワーク。
+**定義**: Python のテストフレームワーク。
 
-**本プロジェクトでの用途**: ユニットテスト・統合テストの実行とカバレッジ計測に使用。
+**本プロジェクトでの用途**: ユニットテスト・統合テストの実行とカバレッジ計測に使用する（`tests/`）。
 
-**バージョン**: ^2.0.0
-
-**選定理由**: TypeScript・ESM をネイティブサポートし、設定が少ない。Jest 互換 API でエコシステムを活用できる。
-
-**設定ファイル**: `vitest.config.ts`
-
-**関連コマンド**: `npm test`, `npm run test:coverage`
+**関連コマンド**: `uv run pytest`
 
 ---
 
-### husky
+### prompt-toolkit
 
-**定義**: Git フックを npm スクリプトで管理するためのツール。
+**定義**: Python 向けの対話型プロンプトライブラリ。
 
-**本プロジェクトでの用途**: `pre-commit` フックで `lint-staged` と `typecheck` を自動実行する。
-
-**バージョン**: ^9.0.0
-
-**注意**: TaskCLI 自体も Git フック（`prepare-commit-msg`）を使用する。husky が管理するフックと、`task start` がインストールするフックは異なる用途のものである。
-
-**設定ファイル**: `.husky/pre-commit`
-
----
-
-### lint-staged
-
-**定義**: Git のステージング済みファイルにのみリントを実行するツール。
-
-**本プロジェクトでの用途**: コミット前にステージング済みの `.ts` ファイルに対して ESLint と Prettier を自動適用する。
-
-**バージョン**: ^15.2.0
-
-**設定**: `package.json` の `lint-staged` フィールド
-
----
-
-### inquirer
-
-**定義**: Node.js 向けの対話型プロンプトライブラリ。ユーザーへの確認入力（y/N）を実装する。
-
-**本プロジェクトでの用途**: `task delete` の削除確認・`task start` のコミットフックインストール確認に使用。
-
-**バージョン**: ^9.0.0
-
-**関連ドキュメント**: [機能設計書](./functional-design.md)
+**本プロジェクトでの用途**: `task-py shell`（インタラクティブシェル）の入力と補完（`src/task_cli/cli/shell.py`）。
 
 ---
 
@@ -368,19 +332,21 @@ git commit -m "feat(cli): --sort オプションを追加"
 
 **意味**: ターミナルのコマンド入力によって操作するインターフェース。
 
-**本プロジェクトでの使用**: TaskCLI のメインインターフェース。ユーザーは `task add "タスク名"` のようなコマンドで操作する。
+**本プロジェクトでの使用**: TaskCLI のメインインターフェース。ユーザーは `task-py add "タスク名"` のようなコマンドで操作する。
 
-**実装**: `src/cli/` ディレクトリ
+**実装**: `src/task_cli/cli/` ディレクトリ
 
 ---
 
-### PAT
+### PAT【未実装】
+
+> **要求のみ。Python 版には未実装**（GitHub 連携は未実装）。
 
 **正式名称**: Personal Access Token
 
 **意味**: GitHub API の認証に使用する個人アクセストークン。
 
-**本プロジェクトでの使用（P1）**: `task config set github-token <token>` で設定する。`~/.task/projects/<name>/config.json` にパーミッション `600` で保存される。
+**本プロジェクトでの使用（P1）**: `task-py config set github-token <token>` で設定する（コマンドは未実装）。プロジェクト別の設定ファイルにパーミッション `600` で保存する。
 
 **必要なスコープ**: `repo`（Issues・PR の読み書きに必要な最低限）
 
@@ -388,13 +354,15 @@ git commit -m "feat(cli): --sort オプションを追加"
 
 ---
 
-### PR
+### PR【未実装】
+
+> **要求のみ。Python 版には未実装**（`task-py done` に `--pr` は無い）。
 
 **正式名称**: Pull Request
 
 **意味**: GitHub 上でブランチのマージをリクエストする機能。
 
-**本プロジェクトでの使用**: `task done <id> --pr` コマンドで現在のブランチから `main`（またはデフォルトブランチ）への PR を自動作成できる。マージは行わない。
+**本プロジェクトでの使用（要求）**: `task-py done <id> --pr` で現在のブランチから `main`（またはデフォルトブランチ）への PR を自動作成できる。マージは行わない。
 
 ---
 
@@ -416,7 +384,7 @@ git commit -m "feat(cli): --sort オプションを追加"
 
 **意味**: 目標達成度を測定するための主要な指標。
 
-**本プロジェクトでの使用**: 導入継続率・タスク完了率・GitHub Stars 等を KPI として定義している。
+**本プロジェクトでの使用**: GitHub Stars・継続利用率・NPS・バグ報告数等を KPI として定義している。
 
 **関連ドキュメント**: [プロダクト要求定義書 > 成功指標](./product-requirements.md#成功指標kpi)
 
@@ -428,7 +396,7 @@ git commit -m "feat(cli): --sort オプションを追加"
 
 **意味**: データの基本操作 4 種（作成・読み取り・更新・削除）の総称。
 
-**本プロジェクトでの使用**: `TaskManager` クラスが提供するタスクの基本操作を指す際に使用。
+**本プロジェクトでの使用**: `TaskManager`（`src/task_cli/services/task_manager.py`）が提供するタスクの基本操作を指す際に使用。
 
 ---
 
@@ -441,11 +409,13 @@ git commit -m "feat(cli): --sort オプションを追加"
 **本プロジェクトでの適用**:
 
 ```
-CLIレイヤー (src/cli/)
+入口: CLI (src/task_cli/cli/) / MCP (src/task_mcp/) / Web GUI (src/task_web/)
     ↓ 依存可
-サービスレイヤー (src/services/)
+ユースケース層 (src/task_cli/usecases/)
     ↓ 依存可
-ストレージレイヤー (src/storage/)
+サービス層 (src/task_cli/services/)
+    ↓ 依存可
+ストレージ層 (src/task_cli/storage/)
 ```
 
 **メリット**: 関心の分離による保守性向上。各レイヤーを独立してテスト可能。変更の影響範囲が限定的。
@@ -453,10 +423,8 @@ CLIレイヤー (src/cli/)
 **デメリット**: レイヤー間のデータ受け渡しが増える。
 
 **依存ルール**:
-- ✅ CLIレイヤー → サービスレイヤー
-- ✅ サービスレイヤー → ストレージレイヤー
-- ❌ ストレージレイヤー → サービスレイヤー（禁止）
-- ❌ サービスレイヤー → CLIレイヤー（禁止）
+- ✅ 入口（CLI・MCP・Web GUI）→ ユースケース層 または サービス層（`GlobalConfigService`・`DailyService` などは入口から直接使う）→ ストレージ層
+- ❌ 下位層から上位層への依存（禁止。ストレージ層 → サービス層、サービス層 → 入口など）
 
 **関連ドキュメント**: [アーキテクチャ設計書](./architecture.md)、[機能設計書](./functional-design.md)
 
@@ -464,11 +432,11 @@ CLIレイヤー (src/cli/)
 
 ### GlobalConfigService
 
-**定義**: グローバル設定（`~/.task/config.json`）の読み書きとアクティブプロジェクト管理を担うサービスクラス。
+**定義**: グローバル設定（`~/.task-py/config.yaml`）の読み書きとアクティブプロジェクト管理を担うサービスクラス。
 
 **本プロジェクトでの位置づけ**: すべてのコマンド実行前にアクティブプロジェクトを解決し、`FileStorage` に渡すパスを決定する。
 
-**実装**: `src/services/GlobalConfigService.ts`
+**実装**: `src/task_cli/services/global_config_service.py`
 
 **依存**: `GlobalConfigStorage`
 
@@ -480,45 +448,49 @@ CLIレイヤー (src/cli/)
 
 **本プロジェクトでの位置づけ**: サービスレイヤーの中核。ビジネスロジック（ステータス遷移ルール・ID 採番等）を実装する。
 
-**実装**: `src/services/TaskManager.ts`
+**実装**: `src/task_cli/services/task_manager.py`
 
 **依存**: `FileStorage`
 
 ---
 
-### GitService
+### GitService【未実装】
+
+> **要求のみ。Python 版には未実装**（クラスは存在しない。設計案は [機能設計書 > 未実装の設計](./functional-design.md#未実装の設計gitgithub-連携-p1)）。
 
 **定義**: Git ブランチの作成・チェックアウト・コミットフック管理を担うサービスクラス。
 
-**本プロジェクトでの位置づけ**: `simple-git` を介して Git リポジトリを操作するアダプター。
+**本プロジェクトでの位置づけ**: Git リポジトリを操作するアダプター（TypeScript 版では Git 操作のライブラリを介していた）。
 
-**実装**: `src/services/GitService.ts`
-
-**依存**: `simple-git`
+**実装**: 未実装
 
 ---
 
-### GitHubService
+### GitHubService【未実装】
+
+> **要求のみ。Python 版には未実装**（クラスは存在しない）。
 
 **定義**: GitHub Issues の同期・インポート・PR 作成を担うサービスクラス。
 
 **本プロジェクトでの位置づけ**: GitHub REST API v3 への HTTP リクエストを管理する。
 
-**実装**: `src/services/GitHubService.ts`
+**実装**: 未実装
 
-**依存**: `ConfigService`、Node.js 標準 `fetch`
+**依存（設計上）**: `ConfigService`
 
 ---
 
-### ConfigService
+### ConfigService【未実装】
+
+> **要求のみ。Python 版には未実装**（クラスは存在しない）。現在の `GlobalConfigService` は GitHub 設定を扱わず、アクティブプロジェクトとプロジェクト一覧だけを管理する。
 
 **定義**: 設定の読み書き・バリデーションを担うサービスクラス。
 
 **本プロジェクトでの位置づけ**: GitHub Token・オーナー名・リポジトリ名・デフォルトブランチを管理する。各キーのバリデーションロジックを実装する。
 
-**実装**: `src/services/ConfigService.ts`
+**実装**: 未実装
 
-**依存**: `ConfigStorage`
+**依存（設計上）**: `ConfigStorage`
 
 ---
 
@@ -598,7 +570,7 @@ CLIレイヤー (src/cli/)
 
 **定義**: usecase 層の各操作が「どのプロジェクトを読み書きするか」を表す値。プロジェクト名（`str`）/ Inbox（`None`）/ アクティブ追従（`ACTIVE_PROJECT`）の3つを取る。
 
-**本プロジェクトでの位置づけ**: 呼び出し側が対象を明示できるようにするための語彙。グローバル設定の `activeProject` はプロセスの外にある共有状態であり、これを暗黙の引数にすると、複数のプロセスが同時に動いたときに「画面で選んだタスク」と「実際に書き換わるタスク」が食い違う（タスク ID はストレージローカルなので、別プロジェクトにも同じ ID が存在しうる）。
+**本プロジェクトでの位置づけ**: 呼び出し側が対象を明示できるようにするための語彙。グローバル設定の `active_project` はプロセスの外にある共有状態であり、これを暗黙の引数にすると、複数のプロセスが同時に動いたときに「画面で選んだタスク」と「実際に書き換わるタスク」が食い違う（タスク ID はストレージローカルなので、別プロジェクトにも同じ ID が存在しうる）。
 
 `None` は Inbox という**実在する保存先**であって「未指定」ではない。未指定は既定値の `ACTIVE_PROJECT` であり、両者を型で区別している。CLI と MCP は既定値を使うため挙動が変わらない。
 
@@ -618,48 +590,43 @@ CLIレイヤー (src/cli/)
 
 ### GlobalConfigStorage
 
-**定義**: `~/.task/config.json` の読み書きと `~/.task/` ディレクトリの自動作成を担うストレージクラス。
+**定義**: `~/.task-py/config.yaml` の読み書きと `~/.task-py/` ディレクトリの自動作成を担うストレージクラス。
 
-**本プロジェクトでの位置づけ**: アクティブプロジェクト名（`activeProject`）を永続化する。`~/.task/` ディレクトリが存在しない場合は自動作成する。
+**本プロジェクトでの位置づけ**: アクティブプロジェクト名（`active_project`）とプロジェクト一覧を永続化する。`~/.task-py/` ディレクトリが存在しない場合は自動作成する（権限は `0700`）。
 
-**実装**: `src/storage/GlobalConfigStorage.ts`
+**実装**: `src/task_cli/storage/global_config_storage.py`
 
 ---
 
-### ConfigStorage
+### ConfigStorage【未実装】
 
-**定義**: `~/.task/projects/<name>/config.json` の読み書きとファイルパーミッション設定を担うストレージクラス（P1）。
+> **要求のみ。Python 版には未実装**（クラスは存在しない）。
+
+**定義**: プロジェクト別の GitHub 設定の読み書きとファイルパーミッション設定を担うストレージクラス（P1）。
 
 **本プロジェクトでの位置づけ**: `chmod 600` でファイルを保護し、GitHub Token をオーナーのみ読み書き可能な状態で保存する。
 
-**実装**: `src/storage/ConfigStorage.ts`
+**実装**: 未実装
 
 ---
 
-### IStorage
+### StorageReadError
 
-**定義**: `FileStorage` および将来の `SQLiteStorage` が実装するストレージの抽象化インターフェース。
+**定義**: 保存済みのファイル（YAML）を読み込めない（構文エラー・値の不正）ときの `AppError`。
 
-**目的**: `TaskManager` をストレージ実装から切り離し、将来の SQLite 移行時にインターフェースを維持したまま差し替えを可能にする。
+**本プロジェクトでの位置づけ**: タスク・ルーティーン・日別ログ・グローバル設定の読み込みで、壊れたファイルを見つけたとき、トレースバックではなく原因（ファイルと行・項目）と対処を示して中断する。タイマーだけは、壊れていても「動いていない」として扱う。保存前の検証エラー（`InvalidTaskData`）とは別物である。
 
-**フィールド**:
-- `load(): Task[]`
-- `save(tasks: Task[]): void`
-- `ensureDirectory(): void`
-
-**実装**: `src/types/index.ts`
+**実装**: `src/task_cli/exceptions.py` と `src/task_cli/storage/yaml_io.py`
 
 ---
 
 ### Renderer
 
-**定義**: タスク一覧・詳細・成功/エラーメッセージのターミナル表示を担うクラス。
+**定義**: タスク一覧・詳細・成功/エラーメッセージのターミナル表示を担う関数群。
 
-**本プロジェクトでの位置づけ**: CLI レイヤーの表示専用コンポーネント。ビジネスロジックを持たない。
+**本プロジェクトでの位置づけ**: CLI レイヤーの表示専用コンポーネント。ビジネスロジックを持たない。表示には `rich` を使う。
 
-**実装**: `src/cli/Renderer.ts`
-
-**依存**: `chalk`（カラー出力）、`cli-table3`（テーブル表示）
+**実装**: `src/task_cli/cli/renderer.py`
 
 ---
 
@@ -711,6 +678,9 @@ CLIレイヤー (src/cli/)
 - `repository-structure.md`: リポジトリ構造定義書
 - `development-guidelines.md`: 開発ガイドライン
 - `glossary.md`: 本ドキュメント
+- `migration-from-ts.md`: TypeScript 版からの移行記録
+- `harness-guide.md`: ハーネス運用ガイド
+- `external-automation-policy.md`: 外部自動化ポリシー
 
 **関連用語**: [ステアリングファイル](#ステアリングファイル-steering-file)
 
@@ -723,19 +693,22 @@ CLIレイヤー (src/cli/)
 **定義**: タスクを表すデータ構造。
 
 **主要フィールド（P0）**:
-- `id`: 自動採番の整数（1 始まり、欠番は再利用しない）
+- `id`: 自動採番の整数（1 始まり。**最大の ID + 1** で採番するので、最大 ID のタスクを削除するとその ID が再利用される。保存先ごとに独立）
 - `title`: タスク名（1〜200 文字）
 - `status`: タスクステータス（`open` / `in_progress` / `completed` / `archived`）
-- `createdAt` / `updatedAt`: 作成・更新日時（ISO 8601）
+- `created_at` / `updated_at`: 作成・更新日時（ISO 8601）
 
-**追加フィールド（P1）**:
+**追加フィールド（P1 以降）**:
 - `priority`: 優先度（`high` / `medium` / `low`）
-- `branch`: 紐付いた Git ブランチ名（`task start` 時に自動設定）
-- `dueDate`: 期限（`YYYY-MM-DD` 形式）
+- `branch`: 紐付いた Git ブランチ名（Git 連携は未実装のため、`task-py start` では設定されない。TypeScript 版からの移行データの表示用）
+- `due_date`: 期限（`YYYY-MM-DD` 形式）
+- `scheduled_date`: 解禁日（`YYYY-MM-DD` 形式。この日より前は `start` できない）
+- `completed_at`: 完了日時（[完了日時](#完了日時-completed-at)）
+- `work_sessions`: 作業セッションの履歴（[作業セッション](#作業セッション-work-session)）
 
-**保存先**: `~/.task/projects/<name>/tasks.json` または `~/.task/inbox/tasks.json`
+**保存先**: `~/.task-py/projects/<name>/tasks.yaml` または `~/.task-py/inbox/tasks.yaml`
 
-**実装**: `src/types/index.ts`
+**実装**: `src/task_cli/models/task.py`
 
 ---
 
@@ -744,27 +717,31 @@ CLIレイヤー (src/cli/)
 **定義**: TaskCLI のグローバル設定データ構造。
 
 **主要フィールド**:
-- `activeProject`: アクティブプロジェクト名（`null` = Inbox モード）
+- `active_project`: アクティブプロジェクト名（`null` = Inbox モード）
+- `projects`: 登録済みプロジェクトの一覧（`name` と自動採番の `id`）
+- `last_project_id`: 最後に採番したプロジェクト ID
 
-**保存先**: `~/.task/config.json`
+**保存先**: `~/.task-py/config.yaml`
 
-**実装**: `src/types/index.ts`
+**実装**: `src/task_cli/models/task.py`
 
 ---
 
-### ProjectConfig（エンティティ）
+### ProjectConfig（エンティティ）【未実装】
+
+> **要求のみ。Python 版には未実装**（データ構造は存在しない）。
 
 **定義**: プロジェクト別の設定データ構造（P1）。
 
 **主要フィールド（P1）**:
-- `githubToken`: GitHub Personal Access Token
-- `githubOwner`: GitHub リポジトリのオーナー名
-- `githubRepo`: GitHub リポジトリ名
-- `defaultBranch`: PR のベースブランチ（デフォルト: `main`）
+- `github_token`: GitHub Personal Access Token
+- `github_owner`: GitHub リポジトリのオーナー名
+- `github_repo`: GitHub リポジトリ名
+- `default_branch`: PR のベースブランチ（デフォルト: `main`）
 
-**保存先**: `~/.task/projects/<name>/config.json`（パーミッション `600`、P1）
+**保存先（設計上）**: プロジェクト別の設定ファイル（パーミッション `600`）
 
-**実装**: `src/types/index.ts`
+**実装**: 未実装
 
 ---
 
@@ -774,7 +751,7 @@ CLIレイヤー (src/cli/)
 
 **クラス名**: `AppError`
 
-**継承元**: `Error`
+**継承元**: `Exception`
 
 **定義**: TaskCLI 全体で統一するアプリケーションエラークラス。エラー概要・原因・対処法の 3 要素を持つ。
 
@@ -794,11 +771,13 @@ CLIレイヤー (src/cli/)
 
 | 状況 | message | cause | remedy |
 |-----|---------|-------|--------|
-| 存在しない ID を指定 | タスクが見つかりません | ID=99 のタスクは存在しません | task list で有効な ID を確認してください |
-| archived タスクを start | このタスクは開始できません | archived のタスクは変更できません | 新しいタスクを作成してください |
-| Token 未設定で sync | GitHub Token が未設定です | GitHub 連携機能には設定が必要です | task config set github-token \<token\> で設定してください |
+| archived タスクを start | このタスクは開始できません。 | archived のタスクは in_progress に変更できません。 | タスクのステータスを確認してください。 |
+| 期限の形式が不正 | 期限の値が正しくありません。 | 期限に 'bogus' が指定されました。 | YYYY-MM-DD の形式で指定してください（例: 2026-12-31）。 |
+| 保存先ファイルが壊れている | 保存先ファイルを読み込めません | ファイルのパスと、行・列または項目名 | ファイルを手で直す。`.bak` があればそこから戻す |
 
-**実装**: `src/types/index.ts`
+**主な派生クラス**: `NotFoundError`（対象が存在しない）、`StateConflictError`（いまの状態ではできない）、`StorageReadError`（保存先ファイルを読めない）、`InvalidTaskData`（保存前の値の検証）。
+
+**実装**: `src/task_cli/exceptions.py`
 
 ---
 
@@ -807,16 +786,16 @@ CLIレイヤー (src/cli/)
 ### あ行
 - [アーカイブ済み](#タスクステータス-task-status) — ステータス用語
 - [アクティブプロジェクト](#アクティブプロジェクト-active-project) — ドメイン用語
-- [インポート](#インポート-import) — ドメイン用語
+- [インポート【未実装】](#インポート-import未実装) — ドメイン用語
 - [Inbox](#inbox) — ドメイン用語
 
 ### か行
 - [完了日時](#完了日時-completed-at) — ドメイン用語
-- [コミット自動タグ付け](#コミット自動タグ付け-commit-auto-tagging) — ドメイン用語
+- [コミット自動タグ付け【未実装】](#コミット自動タグ付け-commit-auto-tagging未実装) — ドメイン用語
 
 ### さ行
 - [作業セッション](#作業セッション-work-session) — ドメイン用語
-- [作業中タスク](#作業中タスク-current-task) — ドメイン用語
+- [作業中タスク【未実装】](#作業中タスク-current-task未実装) — ドメイン用語
 - [スペック駆動開発](#スペック駆動開発-spec-driven-development) — アーキテクチャ用語
 - [ステアリングファイル](#ステアリングファイル-steering-file) — アーキテクチャ用語
 - [操作対象プロジェクト（ProjectTarget）](#操作対象プロジェクトprojecttarget) — アーキテクチャ用語
@@ -826,7 +805,7 @@ CLIレイヤー (src/cli/)
 - [タスク](#タスク-task) — ドメイン用語
 - [タスクステータス](#タスクステータス-task-status) — ドメイン用語
 - [タスク優先度](#タスク優先度-task-priority) — ドメイン用語
-- [同期](#同期-sync) — ドメイン用語
+- [同期【未実装】](#同期-sync未実装) — ドメイン用語
 - [Task](#taskエンティティ) — データモデル用語
 - [TaskManager](#taskmanager) — アーキテクチャ用語
 
@@ -836,7 +815,7 @@ CLIレイヤー (src/cli/)
 ### は行
 - [排他区間（transaction）](#排他区間transaction) — アーキテクチャ用語
 - [不可分な置き換え](#不可分な置き換え) — アーキテクチャ用語
-- [ブランチスラッグ](#ブランチスラッグ-branch-slug) — ドメイン用語
+- [ブランチスラッグ【未実装】](#ブランチスラッグ-branch-slug未実装) — ドメイン用語
 - [プロジェクト](#プロジェクト-project) — ドメイン用語
 
 ### ら行
@@ -848,26 +827,24 @@ CLIレイヤー (src/cli/)
 ### A-Z
 - [AppError](#apperror) — エラー・例外
 - [CLI](#cli) — 略語
-- [Commander.js](#commanderjs) — 技術用語
-- [ConfigService](#configservice) — アーキテクチャ用語
-- [ConfigStorage](#configstorage) — アーキテクチャ用語
+- [ConfigService【未実装】](#configservice未実装) — アーキテクチャ用語
+- [ConfigStorage【未実装】](#configstorage未実装) — アーキテクチャ用語
 - [CRUD](#crud) — 略語
 - [CSRF 防御](#csrf-防御) — アーキテクチャ用語
 - [FileStorage](#filestorage) — アーキテクチャ用語
-- [GitHubService](#githubservice) — アーキテクチャ用語
-- [GitService](#gitservice) — アーキテクチャ用語
+- [GitHubService【未実装】](#githubservice未実装) — アーキテクチャ用語
+- [GitService【未実装】](#gitservice未実装) — アーキテクチャ用語
 - [GlobalConfig](#globalconfigエンティティ) — データモデル用語
 - [GlobalConfigService](#globalconfigservice) — アーキテクチャ用語
 - [GlobalConfigStorage](#globalconfigstorage) — アーキテクチャ用語
-- [husky](#husky) — 技術用語
-- [inquirer](#inquirer) — 技術用語
-- [IStorage](#istorage) — アーキテクチャ用語
 - [KPI](#kpi) — 略語
-- [lint-staged](#lint-staged) — 技術用語
 - [MVP](#mvp) — 略語
-- [PAT](#pat) — 略語
-- [PR](#pr) — 略語
-- [ProjectConfig](#projectconfigエンティティ) — データモデル用語
+- [PAT【未実装】](#pat未実装) — 略語
+- [PR【未実装】](#pr未実装) — 略語
+- [ProjectConfig【未実装】](#projectconfigエンティティ未実装) — データモデル用語
+- [prompt-toolkit](#prompt-toolkit) — 技術用語
+- [pydantic](#pydantic) — 技術用語
+- [pytest](#pytest) — 技術用語
 - [Renderer](#renderer) — アーキテクチャ用語
-- [simple-git](#simple-git) — 技術用語
-- [Vitest](#vitest) — 技術用語
+- [StorageReadError](#storagereaderror) — アーキテクチャ用語
+- [typer](#typer) — 技術用語
