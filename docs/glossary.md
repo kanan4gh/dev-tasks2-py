@@ -148,7 +148,7 @@ stateDiagram-v2
 **使用例**:
 ```bash
 task-py add "セキュリティ脆弱性の修正" --priority high
-# task-py list --sort priority（high → medium → low の順で表示）は CLI に未実装。Web GUI の一覧 API にはある
+task-py list --sort priority  # high → medium → low の順で表示
 ```
 
 **実装**: `src/task_cli/models/task.py`（`Priority`）

@@ -7,7 +7,7 @@
 | バージョン | 対象機能 |
 |-----------|---------|
 | v1.0 MVP（P0） | タスク基本操作・Inbox・プロジェクト管理・ステータス管理・テーブル表示。あわせてルーティーン管理・概況表示（`overview`）・タイマーも実装済み |
-| v1.1（P1） | **実装済み**: ステータスによる絞り込み・検索・タスク編集・優先度/期限管理。**未実装**: Git ブランチ自動連携・コミット自動タグ付け・GitHub Issues 連携・PR 自動作成（末尾の「未実装の設計」節） |
+| v1.1（P1） | **実装済み**: ステータス・優先度による絞り込みと並べ替え（`list` の `--status` / `--priority` / `--sort`）・期限切れの強調・検索・タスク編集・優先度/期限管理。**未実装**: Git ブランチ自動連携・コミット自動タグ付け・GitHub Issues 連携・PR 自動作成（末尾の「未実装の設計」節） |
 | v1.2 | 完了日時の記録・タイマーの永続化とタスク連携・作業時間の記録・`$EDITOR` 連携（GUI 導入の土台） |
 | v1.3 | 書き込みのプロジェクト明示指定・YAML の排他制御とアトミック書き込み（GUI 導入の土台） |
 | v1.4 | ローカル Web GUI の読み取り面（下記「ローカル Web GUI」節） |
@@ -240,13 +240,13 @@ last_project_id: 1
 | コマンド | 引数 / オプション | 処理概要 |
 |---------|----------------|---------|
 | `task-py add <title>` | `--description` / `-d`, `--priority` / `-p`, `--due` | タスク作成。優先度の既定は `medium` |
-| `task-py list` | `--all-status`, `--all`, `--inbox` | タスク一覧表示。既定は `open` + `in_progress` のみ。`--all-status` で全ステータス。`--all` で全プロジェクト + Inbox。`--inbox` で Inbox のみ。優先度での絞り込みと並べ替えは CLI には無い（Web の一覧 API にはある） |
+| `task-py list` | `--all-status`, `--all`, `--inbox`, `--status`, `--priority`, `--sort` | タスク一覧表示。既定は `open` + `in_progress` のみ。`--all-status` で全ステータス。`--status <status>` はそのステータスだけ（複数指定可。`--all-status` とは併用できず、指定するとエラー）。`--priority <high\|medium\|low>` は優先度で絞り込む。`--sort <id\|priority\|due_date\|created_at>` は並べ替え（既定 `id`。`priority` は high → medium → low の順、`due_date` は期限の早い順で期限なしが末尾）。`--all` で全プロジェクト + Inbox。`--inbox` で Inbox のみ。絞り込み・並べ替えは `--all`・`--inbox` と併用できる |
 | `task-py show <id>` | — | タスク詳細表示 |
 | `task-py start <id>` | — | ステータスを `in_progress` に変更。解禁日が未来のタスクは開始できない |
 | `task-py done <id>` | — | ステータスを `completed` に変更し、完了日時を記録。対象タスクのタイマーは記録して停止する |
 | `task-py delete <id>` | — | タスク削除（確認プロンプト付き） |
 | `task-py archive <id>` | — | ステータスを `archived` に変更 |
-| `task-py edit <id>` | `--title` / `-t`, `--description` / `-d`, `--priority` / `-p`, `--due`, `--due-clear`, `--scheduled`, `--scheduled-clear`, `--editor` / `-e` | タスク属性の編集（下記「`$EDITOR` 連携」を参照） |
+| `task-py edit <id>` | `--title` / `-t`, `--description` / `-d`, `--priority` / `-p`, `--due`, `--due-clear`, `--scheduled`, `--scheduled-clear`, `--editor` / `-e` | タスク属性の編集（下記「`$EDITOR` 連携」を参照）。`archived` のタスクも編集できる。完了後は「タスク ID <id> を更新しました」と表示する（詳細パネルは出さない） |
 | `task-py schedule <id> [date]` | `--clear` | 解禁日を設定・削除する。解禁日以降に `start` できる |
 | `task-py search <keyword>` | — | アクティブプロジェクトまたは Inbox のタスクを、タイトル・説明の大文字小文字を区別しない部分一致で検索 |
 | `task-py move <id> <project>` | — | タスクを別プロジェクト（または `inbox`）に移動。移動先で採番し直されるので ID が変わる |
@@ -640,32 +640,32 @@ sequenceDiagram
 
 ### task-py list のテーブル表示
 
-`task-py list`（既定は `open` + `in_progress` のみ）は **ID / Status / Title** の3列。
+`task-py list`（既定は `open` + `in_progress` のみ）は **ID / Status / Priority / Title / Due** の5列。`task-py search` も同じ表で出す。
 ```
 [Project: my-app]
- ID   Status       Title
- 1-1  in_progress  ユーザー認証機能の実装
- 1-2  open         データエクスポート機能
+ ID   Status       Priority  Title                  Due
+ 1-1  in_progress  high      ユーザー認証機能の実装  2026-03-31
+ 1-2  open         medium    データエクスポート機能  -
 
 [Inbox]  ← アクティブプロジェクト未設定時
- ID   Status       Title
- 0-1  open         買い物リスト作成
+ ID   Status       Priority  Title                  Due
+ 0-1  open         low       買い物リスト作成        -
 ```
 
 **`task-py list --all`（全プロジェクト表示）**:
 ```
 [Project: my-app]    ← アクティブプロジェクトは緑色強調
- ID   Status       Title
- 1-1  in_progress  ユーザー認証機能の実装
- 1-2  open         データエクスポート機能
+ ID   Status       Priority  Title                  Due
+ 1-1  in_progress  high      ユーザー認証機能の実装  2026-03-31
+ 1-2  open         medium    データエクスポート機能  -
 
 [Project: personal]
- ID   Status       Title
- 2-1  open         読書リスト
+ ID   Status       Priority  Title                  Due
+ 2-1  open         low       読書リスト              -
 
 [Inbox]
- ID   Status       Title
- 0-1  open         買い物リスト作成
+ ID   Status       Priority  Title                  Due
+ 0-1  open         low       買い物リスト作成        -
 ```
 
 **表示項目**:
@@ -674,9 +674,13 @@ sequenceDiagram
 | ヘッダー行 | `[Project: <name>]` または `[Inbox]` | テーブル上部に常時表示 |
 | ID | 複合 ID（`<projectId>-<localId>`、Inbox は `0-<localId>`） | 右寄せ |
 | Status | ステータス | カラーコード付き文字列 |
+| Priority | 優先度 | `high` 赤・`medium` 黄・`low` 青 |
 | Title | タスク名 | 最大40文字（超過は`…`で省略） |
+| Due | 期限（`YYYY-MM-DD`）。無ければ `-` | 期限切れは太字の赤（優先度 `high` の赤と見分けるため） |
 
-優先度・期限・完了日時・作業時間は、`task-py show <id>` の詳細パネルに出る（ブランチは値がある場合のみ）。解禁日は `Sched` の行に出る（値がある場合のみ）。解禁日が今日より未来のときは「まだ着手できません」を併記する。「今日」の定義は `start` の判定と同じ。
+**期限切れの強調**: `open` または `in_progress` で、期限が今日より前のタスクの Due を太字の赤で表示する。完了・アーカイブ済みは、期限を過ぎていても赤にしない。「今日」の定義は `start` の判定と同じ（`task_cli/clock.py` の `today_str()`）。
+
+完了日時・作業時間は、`task-py show <id>` の詳細パネルに出る（ブランチは値がある場合のみ）。解禁日は `Sched` の行に出る（値がある場合のみ）。解禁日が今日より未来のときは「まだ着手できません」を併記する。
 
 ### task-py project list の表示
 
@@ -939,7 +943,7 @@ class StorageReadError(AppError): ...    # 保存済みファイルを読み込�
 >
 > ここにあるのは、`docs/product-requirements.md` の P1 要求（Git ブランチ連携・コミット自動タグ付け・GitHub Issues 連携・PR 自動作成）に対する**設計案**で、TypeScript 版の時代に書かれたものである。設計の意図を残すために言語に依存しない形で書き直してあり、**実装するときは** Python 版の層構造（`docs/architecture.md`）とストレージ（YAML）に合わせて読み替える。実装済みの機能と取り違えないこと。
 >
-> Git・GitHub 連携のほか、それと合わせて検討されていた一覧表示の拡張案（優先度・期限の列。下記「一覧表示の追加列」）も含む。優先度と期限の列は Git と無関係だが、CLI の一覧には未実装である。
+> Git・GitHub 連携のほか、それと合わせて検討されていた一覧表示の拡張案（Branch 列と、期限の黄色表示。下記「一覧表示の追加列」）も含む。優先度と期限の列は実装済みで、未実装なのは Branch 列と期限の黄色表示である。
 
 ### 追加で必要になるサブコマンド
 
@@ -1047,9 +1051,9 @@ github_repo: null
 default_branch: main
 ```
 
-### 一覧表示の追加列
+### 一覧表示の追加列（Branch）
 
-P0 の一覧（ID / Status / Title）に、次の列を足す案。
+実装済みの一覧は **ID / Status / Priority / Title / Due** の5列である（「task-py list のテーブル表示」を参照）。Git 連携を実装するときは、そこに Branch 列を足す案である。
 
 ```
 [Project: my-app]
@@ -1061,11 +1065,9 @@ P0 の一覧（ID / Status / Title）に、次の列を足す案。
 
 | 列 | 説明 | フォーマット |
 |---|---|---|
-| Priority | 優先度 | カラーコード付き文字列 |
-| Branch | ブランチ名（Git 連携を実装した場合のみ意味を持つ。`Task.branch` は現状、移行データの表示用） | 最大35文字（超過は`…`で省略）、なければ `-` |
-| Due | 期限 | `YYYY-MM-DD`、なければ `-`、期限切れは赤 |
+| Branch | ブランチ名（Git 連携を実装した場合のみ意味を持つ。`Task.branch` は現状、移行データの表示用で、`show` でのみ表示される） | 最大35文字（超過は`…`で省略）、なければ `-` |
 
-**期限の色分け**: 期限切れ（今日以前）は赤、残り 3 日以内は黄、それ以外はデフォルト色。
+**期限の色分け（案）**: 実装済みの「期限切れは太字の赤」に加えて、残り 3 日以内を黄にする案。未実装。
 
 ### ユースケース
 

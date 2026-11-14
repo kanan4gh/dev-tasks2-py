@@ -31,15 +31,20 @@ task-py list               # open と in_progress のみ表示
 task-py list --all-status  # 全ステータスを表示
 task-py list --all         # 全プロジェクト + Inbox のタスクを表示
 task-py list --inbox       # Inbox のタスクのみ表示
+task-py list --status completed             # 完了済みだけ表示（複数指定可。既定は open と in_progress のみ）
+task-py list --priority high                # 優先度で絞り込み
+task-py list --sort due_date                # 並べ替え（id / priority / due_date / created_at）
 ```
+
+期限切れ（`open` / `in_progress` で期限が今日より前）の期限は太字の赤で表示されます。
 
 表示例:
 
 ```
 [Inbox]
-  ID  Status  Title
- 0-1  open    ユーザー認証機能の実装
- 0-2  open    バグ修正
+  ID  Status  Priority  Title                    Due
+ 0-1  open    high      ユーザー認証機能の実装   2030-03-31
+ 0-2  open    medium    バグ修正                 -
 ```
 
 ### タスク詳細
