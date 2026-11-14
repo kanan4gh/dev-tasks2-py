@@ -59,16 +59,29 @@ def render_task_table(
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
     table.add_column("ID", justify="right", no_wrap=True)
     table.add_column("Status", no_wrap=True)
+    table.add_column("Priority", no_wrap=True)
     table.add_column("Title")
+    table.add_column("Due", no_wrap=True)
 
+    today = today_str()
     for task in tasks:
         cid = _compound_id(task.id, active_project, config)
         style = _STATUS_STYLES[task.status]
         title = task.title if len(task.title) <= 40 else task.title[:39] + "…"
+        # 期限切れ = まだ終わっていない（open / in_progress）のに、期限が今日より前。
+        # 完了・アーカイブ済みの期限は、過ぎていても赤にしない。
+        overdue = (
+            task.due_date is not None
+            and task.due_date < today
+            and task.status in (TaskStatus.OPEN, TaskStatus.IN_PROGRESS)
+        )
         table.add_row(
             cid,
             Text(task.status.value, style=style),
+            Text(task.priority.value, style=_PRIORITY_STYLES[task.priority]),
             title,
+            # 優先度 high も赤なので、期限切れは太字の赤にして、隣の Priority の赤と見分ける
+            Text(task.due_date or "-", style="bold red" if overdue else ""),
         )
 
     console.print(table)
