@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
+from task_cli.clock import today_str
 from task_cli.exceptions import AppError, NotFoundError, StateConflictError
 from task_cli.models.task import Priority, Task, TaskStatus
 from task_cli.models.time import WorkSession
@@ -128,7 +129,7 @@ class TaskManager:
         raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
-            remedy="task list で有効なIDを確認してください。",
+            remedy="task-py list で有効なIDを確認してください。",
         )
 
     def update_task(self, id: int, **kwargs: object) -> Task:
@@ -147,7 +148,7 @@ class TaskManager:
         raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
-            remedy="task list で有効なIDを確認してください。",
+            remedy="task-py list で有効なIDを確認してください。",
         )
 
     def append_work_session(self, id: int, session: WorkSession) -> Task:
@@ -170,7 +171,7 @@ class TaskManager:
         raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
-            remedy="task list で有効なIDを確認してください。",
+            remedy="task-py list で有効なIDを確認してください。",
         )
 
     def delete_task(self, id: int) -> None:
@@ -184,7 +185,7 @@ class TaskManager:
         raise NotFoundError(
             "タスクが見つかりません。",
             cause=f"ID={id} のタスクは存在しません。",
-            remedy="task list で有効なIDを確認してください。",
+            remedy="task-py list で有効なIDを確認してください。",
         )
 
     def edit_fields(
@@ -227,8 +228,7 @@ class TaskManager:
                 remedy="タスクのステータスを確認してください。",
             )
         if task.scheduled_date is not None:
-            today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
-            if task.scheduled_date > today:
+            if task.scheduled_date > today_str():
                 raise StateConflictError(
                     "このタスクはまだ解禁されていません。",
                     cause=f"scheduled_date ({task.scheduled_date}) が未来のため着手できません。",
@@ -242,7 +242,7 @@ class TaskManager:
             raise StateConflictError(
                 "このタスクは完了できません。",
                 cause=f"{task.status.value} のタスクは completed に変更できません。",
-                remedy="task start <id> でタスクを開始してから完了してください。",
+                remedy="task-py start <id> でタスクを開始してから完了してください。",
             )
         return self._apply_status_change(task, TaskStatus.COMPLETED)
 

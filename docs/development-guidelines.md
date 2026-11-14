@@ -153,7 +153,7 @@ class TaskManager:
         raise AppError(
             "タスクが見つかりません。",
             cause=f"ID={task_id} のタスクは存在しません。",
-            remedy="task list で有効なIDを確認してください。",
+            remedy="task-py list で有効なIDを確認してください。",
         )
 ```
 
