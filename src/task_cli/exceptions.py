@@ -16,3 +16,11 @@ class StateConflictError(AppError):
     タスクが無いことと区別できなくなる。サブクラスなので、CLI と MCP は
     従来どおり `except AppError` で扱える。
     """
+
+
+class StorageReadError(AppError):
+    """保存先ファイルを読み込めない（YAML が壊れている・値が不正）。
+
+    保存前の検証エラー（`InvalidTaskData`）とは別物で、こちらは読み込み側の失敗。
+    Web では 500 のまま、原因と対処を返す。
+    """

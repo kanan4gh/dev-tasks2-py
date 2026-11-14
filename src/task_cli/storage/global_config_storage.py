@@ -7,6 +7,7 @@ import yaml
 
 from task_cli.models.task import GlobalConfig
 from task_cli.storage.atomic import locked, write_atomic
+from task_cli.storage.yaml_io import read_yaml, validated
 
 _DEFAULT_PATH = Path("~/.task-py/config.yaml")
 
@@ -38,11 +39,10 @@ class GlobalConfigStorage:
     def load(self) -> GlobalConfig:
         if not self._path.exists():
             return GlobalConfig()
-        with self._path.open(encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        data = read_yaml(self._path, dict)
         if not data:
             return GlobalConfig()
-        return GlobalConfig.model_validate(data)
+        return validated(self._path, lambda: GlobalConfig.model_validate(data))
 
     def save(self, config: GlobalConfig) -> None:
         with self.transaction():
