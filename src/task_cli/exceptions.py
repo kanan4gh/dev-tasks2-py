@@ -24,3 +24,11 @@ class StorageReadError(AppError):
     保存前の検証エラー（`InvalidTaskData`）とは別物で、こちらは読み込み側の失敗。
     Web では 500 のまま、原因と対処を返す。
     """
+
+
+class InvalidProjectName(AppError):
+    """プロジェクト名がパスとして安全でない・規則に合わない。
+
+    名前は `~/.task-py/projects/{name}/` にそのまま使われるため、作成と改名の
+    新しい名前にだけ適用する（登録済みの名前は読めるままにする）。
+    """

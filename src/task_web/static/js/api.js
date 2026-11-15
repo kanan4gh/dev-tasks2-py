@@ -80,6 +80,18 @@ export const api = {
     request(`${tasksPath(project)}/${id}/${action}`, { method: "POST", ifMatch: version }),
   remove: (project, id, version) =>
     request(`${tasksPath(project)}/${id}`, { method: "DELETE", ifMatch: version }),
+  // --- project 管理 ---
+  // 版(If-Match)は無い。プロジェクトは名前だけの登録で、競合は 404/409 で表す。
+  createProject: (name) => request("/api/projects", { method: "POST", body: { name } }),
+  useProject: (name) =>
+    request(`/api/projects/${encodeURIComponent(name)}/use`, { method: "POST" }),
+  renameProject: (name, newName) =>
+    request(`/api/projects/${encodeURIComponent(name)}/rename`, {
+      method: "POST",
+      body: { new: newName },
+    }),
+  removeProject: (name) =>
+    request(`/api/projects/${encodeURIComponent(name)}`, { method: "DELETE" }),
   move: (project, id, target, version) =>
     request(`${tasksPath(project)}/${id}/move`, {
       method: "POST",
