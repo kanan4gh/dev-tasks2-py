@@ -6,10 +6,12 @@
 import { api, subscribe } from "./api.js";
 import {
   ConfirmDelete,
+  ConfirmProjectRemove,
   ErrorBox,
   GroupedTasks,
   MoveForm,
   Overview,
+  ProjectNameForm,
   TaskDetail,
   TaskForm,
   TaskList,
@@ -214,7 +216,7 @@ function App() {
       <header class="top">
         <h1>task-py</h1>
         ${state &&
-        html`<span class="active"
+        html`<span class="active" title="CLI と MCP が既定で対象にするプロジェクト"
           >アクティブ: ${state.active_project || "Inbox"}</span
         >`}
         <nav class="tabs">
@@ -246,6 +248,9 @@ function App() {
           )}
         </nav>
         <span class="spacer"></span>
+        <button type="button" onClick=${() => setDialog({ kind: "project-create" })}>
+          ＋ プロジェクト
+        </button>
         <button
           type="button"
           class="primary"
@@ -319,6 +324,43 @@ function App() {
                 setView({ kind: "all" });
               })}
           />`}
+          ${dialog.kind === "project-create" &&
+          html`<${ProjectNameForm}
+            title="プロジェクトを作成"
+            submitLabel="作成する"
+            note="作成するとアクティブになります（CLI・MCP の既定の対象も切り替わります）。"
+            busy=${busy}
+            onCancel=${() => setDialog(null)}
+            onSubmit=${(name) =>
+              run(async () => {
+                await api.createProject(name);
+                setView({ kind: "project", project: name });
+              })}
+          />`}
+          ${dialog.kind === "project-rename" &&
+          html`<${ProjectNameForm}
+            title=${`「${dialog.name}」の名前を変更`}
+            initial=${dialog.name}
+            submitLabel="変更する"
+            busy=${busy}
+            onCancel=${() => setDialog(null)}
+            onSubmit=${(name) =>
+              run(async () => {
+                if (name !== dialog.name) await api.renameProject(dialog.name, name);
+                setView({ kind: "project", project: name });
+              })}
+          />`}
+          ${dialog.kind === "project-remove" &&
+          html`<${ConfirmProjectRemove}
+            name=${dialog.name}
+            busy=${busy}
+            onCancel=${() => setDialog(null)}
+            onConfirm=${() =>
+              run(async () => {
+                await api.removeProject(dialog.name);
+                setView({ kind: "all" });
+              })}
+          />`}
           ${dialog.kind === "delete" &&
           html`<${ConfirmDelete}
             task=${dialog.task}
@@ -333,7 +375,11 @@ function App() {
         </div>`}
         ${!dialog &&
         writeError &&
-        html`<${ErrorBox} error=${writeError} onReload=${dismissAfterConflict} />`}
+        html`<${ErrorBox}
+          error=${writeError}
+          onReload=${dismissAfterConflict}
+          onClose=${() => setWriteError(null)}
+        />`}
         ${error && html`<${ErrorBox} error=${error} />`}
         ${!error && !ready && html`<p class="empty">読み込み中…</p>`}
         ${ready && view.kind === "overview" && html`<${Overview} data=${data} onOpen=${openTask} onAction=${rowAction} />`}
@@ -357,6 +403,33 @@ function App() {
             <${Filters} filters=${filters} onChange=${setFilters} />
             <section class="group">
               <h2>${view.project === null ? "Inbox" : view.project}</h2>
+              ${view.project !== null &&
+              html`<div class="project-actions">
+                ${state && state.active_project !== view.project &&
+                html`<button
+                  type="button"
+                  disabled=${busy}
+                  onClick=${() => run(() => api.useProject(view.project))}
+                >
+                  アクティブにする
+                </button>`}
+                ${state && state.active_project === view.project &&
+                html`<span class="meta">アクティブ（CLI・MCP の既定の対象）</span>`}
+                <button
+                  type="button"
+                  disabled=${busy}
+                  onClick=${() => setDialog({ kind: "project-rename", name: view.project })}
+                >
+                  名前を変更
+                </button>
+                <button
+                  type="button"
+                  disabled=${busy}
+                  onClick=${() => setDialog({ kind: "project-remove", name: view.project })}
+                >
+                  削除
+                </button>
+              </div>`}
               <${TaskList}
                 tasks=${data.tasks}
                 project=${view.project}

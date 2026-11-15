@@ -28,10 +28,18 @@ from task_cli.cli.deps import (
     get_time_tracking_use_case,
     get_use_case,
 )
-from task_cli.exceptions import AppError, NotFoundError, StateConflictError, StorageReadError
+from task_cli.exceptions import (
+    AppError,
+    InvalidProjectName,
+    NotFoundError,
+    StateConflictError,
+    StorageReadError,
+)
 from task_cli.models.task import Priority, Task, TaskStatus
 from task_cli.services.daily_service import DailyService
+from task_cli.services.project_service import ProjectService, validate_project_name
 from task_cli.services.task_manager import InvalidTaskData, TaskFilter
+from task_cli.storage.global_config_storage import GlobalConfigStorage
 from task_web import csrf, serializers, versions
 from task_web.events import events_endpoint
 from task_web.watcher import revision
@@ -56,6 +64,12 @@ def api_routes(allowed_hosts: list[str] | None = None) -> list[BaseRoute]:
         Route("/api/tasks", all_tasks, methods=["GET"]),
         Route("/api/search", search, methods=["GET"]),
         Route("/api/events", events_endpoint, methods=["GET"]),
+    ]
+    routes += [
+        Route("/api/projects", write(create_project), methods=["POST"]),
+        Route("/api/projects/{name}/use", write(use_project), methods=["POST"]),
+        Route("/api/projects/{name}/rename", write(rename_project), methods=["POST"]),
+        Route("/api/projects/{name}", write(remove_project), methods=["DELETE"]),
     ]
     for base in task_paths:
         routes += [
@@ -104,6 +118,7 @@ class BadRequest(AppError):
 _STATUS_BY_ERROR: tuple[tuple[type[AppError], int], ...] = (
     (BadRequest, 400),
     (InvalidTaskData, 400),
+    (InvalidProjectName, 400),
     (csrf.Forbidden, 403),
     (NotFoundError, 404),
     # 保存ファイルが壊れている。利用者の操作の誤りではないので 500 のまま、
@@ -501,6 +516,98 @@ def move_task(request: Request, payload: dict[str, Any]) -> JSONResponse:
 
 def _check_version(request: Request, current: Task) -> None:
     versions.ensure_matches(current, versions.required_version(request.headers))
+
+
+# --- project 管理 -----------------------------------------------------------
+#
+# 保存は `ProjectService`(config.yaml)に任せ、ここは HTTP との変換だけを行う。
+# 「アクティブ」を書き換えるのは `use` と、CLI の `project create` と同じ
+# 「作成するとアクティブになる」挙動だけである。タスクの操作は引き続きパスで
+# 対象を明示するので、アクティブが変わっても他の画面の対象は動かない。
+
+
+def _project_service() -> ProjectService:
+    return ProjectService(GlobalConfigStorage())
+
+
+def _string_field(payload: dict[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise BadRequest(
+            f"本文の {key} が不正です。",
+            cause=(
+                f"本文に {key} が含まれていません。"
+                if key not in payload
+                else f"{key} に {type(value).__name__} が指定されました。"
+            ),
+            remedy=f'{{"{key}": "プロジェクト名"}} の形で文字列を送ってください。',
+        )
+    return value
+
+
+def _project_state() -> dict[str, Any]:
+    config = _project_service().get_config()
+    return {
+        "active_project": config.active_project,
+        "projects": [serializers.project_entry(p) for p in config.projects],
+    }
+
+
+def create_project(request: Request, payload: dict[str, Any]) -> JSONResponse:
+    entry = _project_service().create_project(_string_field(payload, "name"))
+    return JSONResponse(
+        {"project": serializers.project_entry(entry), **_project_state()}, status_code=201
+    )
+
+
+def use_project(request: Request, payload: dict[str, Any]) -> JSONResponse:
+    _project_service().use_project(request.path_params["name"])
+    return JSONResponse(_project_state())
+
+
+def _refuse_if_timer_runs_on(name: str) -> None:
+    """そのプロジェクトでタイマーが動いている間は、改名・削除を断る。
+
+    タイマーは開始時のプロジェクト名を持ち、停止時にそこへ作業セッションを
+    書く。名前が消えると停止できず、計測した時間の行き場がなくなる。
+
+    **呼び出し側が `timer_guard()` の内側で、この確認と変更を行うこと。** 確認の
+    あとに別のプロセスがタイマーを開始すると、確認が無意味になる。ロックの
+    取得順は timer.yaml → config.yaml（config.yaml のロックは他のロックを
+    取らないので、逆向きにはならない）。
+    """
+    state = get_time_tracking_use_case().status()
+    if state is not None and state.project == name:
+        raise StateConflictError(
+            "実行中のタイマーがあるため、プロジェクトを変更できません。",
+            cause=f"プロジェクト '{name}' のタイマーが動いています。",
+            remedy="task-py time stop でタイマーを止めてから、もう一度実行してください。",
+        )
+
+
+def rename_project(request: Request, payload: dict[str, Any]) -> JSONResponse:
+    name: str = request.path_params["name"]
+    new = _string_field(payload, "new")
+    service = _project_service()
+    # 確認の順は「本文 → 名前の形 → 実在 → タイマー」。タイマーが動いているときに
+    # 不正な名前を送っても、先に 400 / 404 を返す。
+    validate_project_name(new)
+    service.get_project(name)
+    with get_time_tracking_use_case().timer_guard():
+        _refuse_if_timer_runs_on(name)
+        service.rename_project(name, new)
+    return JSONResponse(_project_state())
+
+
+def remove_project(request: Request, payload: dict[str, Any]) -> JSONResponse:
+    """登録を外すだけで、データのディレクトリは残す(`project remove` と同じ)。"""
+    name: str = request.path_params["name"]
+    service = _project_service()
+    service.get_project(name)
+    with get_time_tracking_use_case().timer_guard():
+        _refuse_if_timer_runs_on(name)
+        service.remove_project(name)
+    return JSONResponse({"deleted": name, **_project_state()})
 
 
 def _task_response(project: str | None, task: Task, status: int = 200) -> JSONResponse:

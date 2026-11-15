@@ -669,3 +669,142 @@ class TestStatusCodes:
 
         assert response.status_code == 409
         assert "current" not in response.json()
+
+
+class TestProjectManagement:
+    """project 管理の書き込み(#75)。"""
+
+    def test_create_returns_201_and_becomes_active(self, client: TestClient) -> None:
+        response = write(client, "POST", "/api/projects", {"name": "foo"})
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["project"]["name"] == "foo"
+        assert body["active_project"] == "foo"
+        assert client.get("/api/state").json()["active_project"] == "foo"
+
+    def test_create_duplicate_is_409(self, client: TestClient) -> None:
+        make_project("foo")
+        assert write(client, "POST", "/api/projects", {"name": "foo"}).status_code == 409
+
+    @pytest.mark.parametrize("name", ["../x", "a/b", ".hidden", "", "x" * 65])
+    def test_create_bad_name_is_400(self, client: TestClient, name: str) -> None:
+        response = write(client, "POST", "/api/projects", {"name": name})
+        assert response.status_code == 400
+        assert response.json()["error"]["remedy"]
+        assert client.get("/api/state").json()["projects"] == []
+
+    @pytest.mark.parametrize("body", [{}, {"name": 5}, {"name": None}])
+    def test_create_missing_or_non_string_name_is_400(
+        self, client: TestClient, body: dict[str, Any]
+    ) -> None:
+        assert write(client, "POST", "/api/projects", body).status_code == 400
+
+    def test_use_switches_active(self, client: TestClient) -> None:
+        make_project("foo")
+        make_project("bar")
+        response = write(client, "POST", "/api/projects/foo/use")
+        assert response.status_code == 200
+        assert response.json()["active_project"] == "foo"
+
+    def test_use_unknown_is_404(self, client: TestClient) -> None:
+        assert write(client, "POST", "/api/projects/nope/use").status_code == 404
+
+    def test_rename_moves_data_and_follows_active(self, client: TestClient) -> None:
+        make_project("foo")
+        write(client, "POST", "/api/projects/foo/tasks", {"title": "t"})
+
+        response = write(client, "POST", "/api/projects/foo/rename", {"new": "baz"})
+
+        assert response.status_code == 200
+        assert response.json()["active_project"] == "baz"
+        assert [t.title for t in get_use_case().list_tasks(project="baz")] == ["t"]
+        assert client.get("/api/projects/foo/tasks").status_code == 404
+
+    def test_rename_errors(self, client: TestClient) -> None:
+        make_project("foo")
+        make_project("bar")
+        assert write(client, "POST", "/api/projects/nope/rename", {"new": "x"}).status_code == 404
+        assert write(client, "POST", "/api/projects/foo/rename", {"new": "bar"}).status_code == 409
+        assert write(client, "POST", "/api/projects/foo/rename", {"new": "../x"}).status_code == 400
+        assert write(client, "POST", "/api/projects/foo/rename", {}).status_code == 400
+        assert write(client, "POST", "/api/projects/foo/rename", {"new": 3}).status_code == 400
+
+    def test_delete_unregisters_but_keeps_data(self, client: TestClient, tmp_path: Path) -> None:
+        make_project("foo")
+        write(client, "POST", "/api/projects/foo/tasks", {"title": "t"})
+
+        response = write(client, "DELETE", "/api/projects/foo")
+
+        assert response.status_code == 200
+        assert response.json()["deleted"] == "foo"
+        assert client.get("/api/state").json()["projects"] == []
+        assert (tmp_path / ".task-py" / "projects" / "foo" / "tasks.yaml").exists()
+
+    def test_delete_unknown_is_404(self, client: TestClient) -> None:
+        assert write(client, "DELETE", "/api/projects/nope").status_code == 404
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("POST", "/api/projects", {"name": "x"}),
+            ("POST", "/api/projects/foo/use", {}),
+            ("POST", "/api/projects/foo/rename", {"new": "y"}),
+            ("DELETE", "/api/projects/foo", {}),
+        ],
+    )
+    def test_csrf_applies(
+        self, client: TestClient, method: str, path: str, body: dict[str, Any]
+    ) -> None:
+        make_project("foo")
+        cross = write(client, method, path, body, headers={"Sec-Fetch-Site": "cross-site"})
+        assert cross.status_code == 403
+        bad_origin = write(client, method, path, body, headers={"Origin": "http://evil.example"})
+        assert bad_origin.status_code == 403
+        plain = client.request(method, path, content=b"{}", headers={"Content-Type": "text/plain"})
+        assert plain.status_code == 415
+        assert [p["name"] for p in client.get("/api/state").json()["projects"]] == ["foo"]
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("POST", "/api/projects/foo/rename", {"new": "baz"}),
+            ("DELETE", "/api/projects/foo", {}),
+        ],
+    )
+    def test_refuses_while_timer_runs_on_the_project(
+        self, client: TestClient, method: str, path: str, body: dict[str, Any]
+    ) -> None:
+        """タイマーは開始時のプロジェクト名を持つ。改名・削除すると停止時の記録先が消える。"""
+        from task_cli.cli.deps import get_time_tracking_use_case
+
+        make_project("foo")
+        task = get_use_case().add_task("t", project="foo")
+        get_time_tracking_use_case().start_timer(task_id=task.id, project="foo")
+
+        response = write(client, method, path, body)
+
+        assert response.status_code == 409
+        assert "time stop" in response.json()["error"]["remedy"]
+        assert [p["name"] for p in client.get("/api/state").json()["projects"]] == ["foo"]
+
+    def test_allows_when_timer_runs_on_another_project(self, client: TestClient) -> None:
+        from task_cli.cli.deps import get_time_tracking_use_case
+
+        make_project("foo")
+        make_project("bar")
+        task = get_use_case().add_task("t", project="bar")
+        get_time_tracking_use_case().start_timer(task_id=task.id, project="bar")
+
+        assert write(client, "POST", "/api/projects/foo/rename", {"new": "baz"}).status_code == 200
+
+    def test_bad_new_name_is_400_even_while_timer_runs(self, client: TestClient) -> None:
+        """確認の順は 本文 → 名前の形 → 実在 → タイマー。"""
+        from task_cli.cli.deps import get_time_tracking_use_case
+
+        make_project("foo")
+        task = get_use_case().add_task("t", project="foo")
+        get_time_tracking_use_case().start_timer(task_id=task.id, project="foo")
+
+        assert write(client, "POST", "/api/projects/foo/rename", {"new": "../x"}).status_code == 400
+        assert write(client, "POST", "/api/projects/nope/rename", {"new": "x"}).status_code == 404

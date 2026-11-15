@@ -249,6 +249,58 @@ export function MoveForm({ task, project, projects, onSubmit, onCancel, busy }) 
   `;
 }
 
+export function ProjectNameForm({ title, initial, submitLabel, note, onSubmit, onCancel, busy }) {
+  const { useState } = window.React;
+  const [name, setName] = useState(initial || "");
+
+  return html`
+    <form
+      class="task-form"
+      onSubmit=${(e) => {
+        e.preventDefault();
+        onSubmit(name);
+      }}
+    >
+      <h2>${title}</h2>
+      <label>
+        プロジェクト名
+        <input
+          type="text"
+          value=${name}
+          maxLength="64"
+          autoFocus
+          required
+          onInput=${(e) => setName(e.target.value)}
+        />
+      </label>
+      ${note && html`<p class="meta">${note}</p>`}
+      <div class="form-actions">
+        <button type="submit" disabled=${busy}>${submitLabel}</button>
+        <button type="button" onClick=${onCancel} disabled=${busy}>やめる</button>
+      </div>
+    </form>
+  `;
+}
+
+export function ConfirmProjectRemove({ name, onConfirm, onCancel, busy }) {
+  return html`
+    <div class="task-form">
+      <h2>プロジェクトの削除の確認</h2>
+      <p>
+        プロジェクト「${name}」を一覧から外します。<strong>タスクのデータは削除されません</strong>
+        （<code>~/.task-py/projects/${name}/</code> に残ります）。同じ名前で作り直すと、
+        そのデータが再び現れます。
+      </p>
+      <div class="form-actions">
+        <button type="button" class="danger" onClick=${onConfirm} disabled=${busy}>
+          一覧から外す
+        </button>
+        <button type="button" onClick=${onCancel} disabled=${busy}>やめる</button>
+      </div>
+    </div>
+  `;
+}
+
 export function ConfirmDelete({ task, onConfirm, onCancel, busy }) {
   return html`
     <div class="task-form">
@@ -303,10 +355,12 @@ export function Overview({ data, onOpen, onAction }) {
   `;
 }
 
-export function ErrorBox({ error, onReload, onDismiss }) {
+export function ErrorBox({ error, onReload, onDismiss, onClose }) {
   // 競合はほかのエラーと同じ赤い箱に流し込まない。混ぜると「自分の入力が
   // 悪かった」と誤解される。原因は利用者の入力ではなく、別の場所での変更である。
-  if (error.isConflict) {
+  // 専用の見せ方にするのは、現在の内容（current）を添えられる版の食い違いだけ。
+  // current の無い 409（開始できない・同名・タイマー実行中など）は原因と対処を出す通常の箱にする。
+  if (error.isConflict && error.current) {
     return html`
       <div class="conflict">
         <div class="conflict-title">${error.message}</div>
@@ -330,6 +384,7 @@ export function ErrorBox({ error, onReload, onDismiss }) {
       <div>${error.message}</div>
       ${error.cause_ && html`<div class="cause">原因: ${error.cause_}</div>`}
       ${error.remedy && html`<div class="remedy">対処: ${error.remedy}</div>`}
+      ${onClose && html`<button type="button" onClick=${onClose}>閉じる</button>`}
     </div>
   `;
 }

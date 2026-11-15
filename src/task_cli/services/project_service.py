@@ -1,8 +1,46 @@
 from pathlib import Path
 
-from task_cli.exceptions import AppError
+from task_cli.exceptions import (
+    AppError,
+    InvalidProjectName,
+    NotFoundError,
+    StateConflictError,
+)
 from task_cli.models.task import GlobalConfig, ProjectEntry
 from task_cli.storage.global_config_storage import GlobalConfigStorage
+
+
+MAX_PROJECT_NAME_LENGTH = 64
+
+
+def validate_project_name(name: str) -> None:
+    """作成・改名の新しい名前を検査する。
+
+    名前は `~/.task-py/projects/{name}/` のパスにそのまま使われる。`../x` や
+    `a/b` を許すと、プロジェクトの外を指すディレクトリを作れてしまう。
+    """
+    problem: str | None = None
+    if not name:
+        problem = "名前が空です。"
+    elif name != name.strip():
+        problem = "名前の前後に空白があります。"
+    elif len(name) > MAX_PROJECT_NAME_LENGTH:
+        problem = f"名前が{MAX_PROJECT_NAME_LENGTH}文字を超えています。"
+    elif any(ord(c) < 0x20 or ord(c) == 0x7F for c in name):
+        problem = "名前に制御文字が含まれています。"
+    elif "/" in name or "\\" in name:
+        problem = "名前に / または \\ が含まれています。"
+    elif name.startswith("."):
+        problem = "名前が . で始まっています。"
+    if problem is not None:
+        raise InvalidProjectName(
+            "プロジェクト名が不正です。",
+            cause=problem,
+            remedy=(
+                f"{MAX_PROJECT_NAME_LENGTH}文字以内で、前後に空白がなく、/ \\ 制御文字を含まず、"
+                ". で始まらない名前を指定してください。"
+            ),
+        )
 
 
 class ProjectService:
@@ -10,12 +48,13 @@ class ProjectService:
         self._storage = storage
 
     def create_project(self, name: str) -> ProjectEntry:
+        validate_project_name(name)
         # 採番（last_project_id += 1）を含むため、load から save までを排他区間に
         # 入れないと同時実行で同じ ID を配ってしまう。
         with self._storage.transaction():
             config = self._storage.load()
             if any(p.name == name for p in config.projects):
-                raise AppError(
+                raise StateConflictError(
                     "同名のプロジェクトが既に存在します。",
                     cause=f"プロジェクト '{name}' は既に登録されています。",
                     remedy="別の名前を指定してください。",
@@ -34,7 +73,7 @@ class ProjectService:
         for p in self._storage.load().projects:
             if p.name == name:
                 return p
-        raise AppError(
+        raise NotFoundError(
             "プロジェクトが見つかりません。",
             cause=f"プロジェクト '{name}' は存在しません。",
             remedy="task-py project list で有効な名前を確認してください。",
@@ -69,11 +108,12 @@ class ProjectService:
         観測しないようにするためである（ただし移動対象の `tasks.yaml` 自体の
         ロックは取らない。design.md の「意図的に残す窓」を参照）。
         """
+        validate_project_name(new)
         with self._storage.transaction():
             self.get_project(old)
             config = self._storage.load()
             if any(p.name == new for p in config.projects):
-                raise AppError(
+                raise StateConflictError(
                     "同名のプロジェクトが既に存在します。",
                     cause=f"プロジェクト '{new}' は既に登録されています。",
                     remedy="別の名前を指定してください。",
@@ -82,7 +122,7 @@ class ProjectService:
             old_dir = Path(f"~/.task-py/projects/{old}").expanduser()
             new_dir = Path(f"~/.task-py/projects/{new}").expanduser()
             if new_dir.exists():
-                raise AppError(
+                raise StateConflictError(
                     "リネーム先のデータディレクトリが既に存在します。",
                     cause=f"{new_dir} が残っています。"
                     "以前に削除したプロジェクトのデータである可能性があります。",
